@@ -11,7 +11,7 @@
     </el-header>
 
     <el-main class="app-main">
-      <div class="three-columns" ref="columnsRef">
+      <div class="two-columns" ref="columnsRef">
         <div
           class="column column-left"
           :style="{ width: leftWidth + 'px', flex: 'none' }"
@@ -21,29 +21,18 @@
 
         <div
           class="resize-handle"
-          @mousedown="(e) => startResize(e, 'left')"
+          @mousedown="(e) => startResize(e)"
         ></div>
 
         <div
           class="column column-center"
-          :style="{ width: centerWidth + 'px', flex: 'none' }"
         >
           <NewsDetail />
         </div>
-
-        <div
-          class="resize-handle"
-          @mousedown="(e) => startResize(e, 'right')"
-        ></div>
-
-        <div
-          class="column column-right"
-          :style="{ width: rightWidth + 'px', flex: 'none' }"
-        >
-          <RightPanel />
-        </div>
       </div>
     </el-main>
+
+    <FloatingAgent />
   </el-container>
 </template>
 
@@ -51,31 +40,24 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import NewsList from '@/components/NewsList.vue'
 import NewsDetail from '@/components/NewsDetail.vue'
-import RightPanel from '@/components/RightPanel.vue'
+import FloatingAgent from '@/components/FloatingAgent.vue'
 
 const columnsRef = ref<HTMLElement | null>(null)
 
 const leftWidth = ref(360)
-const centerWidth = ref(500)
-const rightWidth = ref(520)
 
 const MIN_LEFT = 260
 const MIN_CENTER = 360
-const MIN_RIGHT = 380
 
-let resizing: 'left' | 'right' | null = null
+let resizing = false
 let startX = 0
 let startLeftW = 0
-let startCenterW = 0
-let startRightW = 0
 
-function startResize(e: MouseEvent, side: 'left' | 'right') {
+function startResize(e: MouseEvent) {
   e.preventDefault()
-  resizing = side
+  resizing = true
   startX = e.clientX
   startLeftW = leftWidth.value
-  startCenterW = centerWidth.value
-  startRightW = rightWidth.value
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
 }
@@ -83,36 +65,19 @@ function startResize(e: MouseEvent, side: 'left' | 'right') {
 function onMouseMove(e: MouseEvent) {
   if (!resizing) return
   const dx = e.clientX - startX
-
-  if (resizing === 'left') {
-    const newLeft = startLeftW + dx
-    const newCenter = startCenterW - dx
-    if (newLeft >= MIN_LEFT && newCenter >= MIN_CENTER) {
-      leftWidth.value = newLeft
-      centerWidth.value = newCenter
-    }
-  } else {
-    const newCenter = startCenterW + dx
-    const newRight = startRightW - dx
-    if (newCenter >= MIN_CENTER && newRight >= MIN_RIGHT) {
-      centerWidth.value = newCenter
-      rightWidth.value = newRight
-    }
+  const newLeft = startLeftW + dx
+  if (newLeft >= MIN_LEFT) {
+    leftWidth.value = newLeft
   }
 }
 
 function onMouseUp() {
-  resizing = null
+  resizing = false
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 }
 
 onMounted(() => {
-  const totalGap = 12 * 4
-  const padding = 12 * 2
-  const available = window.innerWidth - totalGap - padding
-  centerWidth.value = Math.max(MIN_CENTER, available - leftWidth.value - rightWidth.value)
-
   document.addEventListener('mousemove', onMouseMove)
   document.addEventListener('mouseup', onMouseUp)
 })
@@ -174,7 +139,7 @@ html, body, #app {
   overflow: hidden;
 }
 
-.three-columns {
+.two-columns {
   display: flex;
   height: 100%;
 }
@@ -186,6 +151,11 @@ html, body, #app {
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   flex-shrink: 0;
+}
+
+.column-center {
+  flex: 1;
+  min-width: 0;
 }
 
 .resize-handle {

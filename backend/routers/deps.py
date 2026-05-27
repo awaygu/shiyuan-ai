@@ -21,6 +21,7 @@ from config import (
     NEWSNOW_CRAWL_INTERVAL,
     RSS_CRAWL_INTERVAL,
     SCHEDULE_MIN_INTERVAL,
+    JINA_READER_URL,
 )
 from crawlers import (
     NewsNowCrawler,
@@ -186,6 +187,26 @@ async def fetch_article_content(url: str) -> str:
         return ""
 
 
+async def fetch_article_content_via_jina(url: str) -> str:
+    """Fetch article content via Jina Reader (handles JS-rendered pages)."""
+    if not url:
+        return ""
+    jina_url = f"{JINA_READER_URL}/{url}"
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            resp = await client.get(jina_url, headers={
+                "Accept": "text/plain",
+            })
+            resp.raise_for_status()
+            text = resp.text.strip()
+            if len(text) > 100:
+                return text[:10000]
+            return ""
+    except Exception as e:
+        logger.warning("Jina Reader failed for %s: %s", url, e)
+        return ""
+
+
 def _extract_meta_description(soup) -> str:
     """Extract article description from meta tags as fallback."""
     parts = []
@@ -240,19 +261,30 @@ async def ensure_content(item: dict) -> None:
         return
 
     source = item.get("source", "")
-    if source in JS_RENDERED_SOURCES:
-        _ensure_limited_content(item)
-        return
-
     url = item.get("url", "")
     if not url:
         return
+
+    if source in JS_RENDERED_SOURCES:
+        content = await fetch_article_content_via_jina(url)
+        if content:
+            item["content"] = content
+            await update_news_content(item["news_id"], content)
+            return
+        _ensure_limited_content(item)
+        return
+
     content = await fetch_article_content(url)
     if content:
         item["content"] = content
         await update_news_content(item["news_id"], content)
     else:
-        _ensure_limited_content(item)
+        content = await fetch_article_content_via_jina(url)
+        if content:
+            item["content"] = content
+            await update_news_content(item["news_id"], content)
+        else:
+            _ensure_limited_content(item)
 
 
 def _ensure_limited_content(item: dict) -> None:

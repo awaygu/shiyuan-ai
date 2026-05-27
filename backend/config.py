@@ -61,6 +61,9 @@ NEWSNOW_PLATFORMS = {
 
 NEWSNOW_API_URL = os.getenv("NEWSNOW_API_URL", "https://newsnow.busiyi.world/api/s")
 
+# Jina Reader (free, no API key required)
+JINA_READER_URL = os.getenv("JINA_READER_URL", "https://r.jina.ai")
+
 # Publishing platforms
 PUBLISH_PLATFORMS = {
     "xiaohongshu": "小红书",

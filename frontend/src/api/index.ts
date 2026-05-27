@@ -135,6 +135,7 @@ export interface StreamCallbacks {
   onLoading?: (message: string) => void
   onPrompt?: (prompt: string) => void
   onLimited?: (message: string) => void
+  onMeta?: (data: Record<string, any>) => void
 }
 
 async function consumeSSE(path: string, body: Record<string, any>, callbacks: StreamCallbacks) {
@@ -182,6 +183,8 @@ async function consumeSSE(path: string, body: Record<string, any>, callbacks: St
               callbacks.onError(parsed.message || '处理失败')
             } else if (parsed.type === 'loading') {
               callbacks.onLoading?.(parsed.message || '加载中...')
+            } else if (parsed.type === 'meta') {
+              callbacks.onMeta?.(parsed)
             } else if (parsed.type === 'done') {
               callbacks.onDone()
               return
@@ -211,4 +214,142 @@ export function streamGenerateArticle(newsIds: string[], style: StyleType, callb
 /** Stream single news interpretation. */
 export function streamInterpret(newsId: string, style: string, callbacks: StreamCallbacks) {
   return consumeSSE('/api/interpret/stream', { news_id: newsId, style }, callbacks)
+}
+
+// ── Agent Smart APIs ───────────────────────────────────────────
+
+export interface TrendItem {
+  keyword: string
+  count: number
+  source_count: number
+  related_news: { news_id: string; title: string; source: string; url: string }[]
+}
+
+/** Get trending topics. */
+export async function fetchTrends(topN = 10): Promise<{ trends: TrendItem[]; total_news: number }> {
+  const res = await api.get('/agent/trends', { params: { top_n: topN } })
+  return res.data
+}
+
+/** Compare coverage across sources. */
+export async function compareSources(keyword: string, sources?: string[]): Promise<{
+  keyword: string
+  comparison: string
+  matched_count: number
+  sources: string[]
+}> {
+  const res = await api.post('/agent/compare', { keyword, sources })
+  return res.data
+}
+
+/** Search news by keyword. */
+export async function searchNews(q: string, source?: string, limit = 20): Promise<{
+  keyword: string
+  total: number
+  items: NewsItem[]
+}> {
+  const params: Record<string, any> = { q, limit }
+  if (source) params.source = source
+  const res = await api.get('/agent/search', { params })
+  return res.data
+}
+
+/** Stream daily briefing. */
+export function streamBriefing(callbacks: StreamCallbacks) {
+  return consumeSSE('/api/agent/briefing/stream', {}, callbacks)
+}
+
+// ── Agent Chat & Actions ──────────────────────────────────────
+
+export interface AgentAction {
+  action: string
+  source?: string
+  keyword?: string
+  style?: string
+}
+
+export interface AgentStreamCallbacks extends StreamCallbacks {
+  onAction?: (action: AgentAction) => void
+  onLoadingDone?: () => void
+}
+
+/** Stream agent chat (general chat with action detection). */
+export function streamAgentChat(message: string, newsIds: string[], callbacks: AgentStreamCallbacks, currentNewsId?: string) {
+  const body: Record<string, any> = { message, news_ids: newsIds }
+  if (currentNewsId) body.current_news_id = currentNewsId
+  return consumeAgentSSE('/api/agent/chat/stream', body, callbacks)
+}
+
+async function consumeAgentSSE(path: string, body: Record<string, any>, callbacks: AgentStreamCallbacks) {
+  const url = SSE_BASE_URL + path
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) {
+      callbacks.onError(`HTTP ${response.status}`)
+      return
+    }
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() || ''
+
+      for (const part of parts) {
+        const lines = part.split('\n')
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const payload = line.slice(6)
+          if (payload === '[DONE]') {
+            callbacks.onDone()
+            return
+          }
+          try {
+            const parsed = JSON.parse(payload)
+            if (parsed.type === 'chunk' && parsed.content) {
+              callbacks.onChunk(parsed.content)
+            } else if (parsed.type === 'action' && parsed.action) {
+              callbacks.onAction?.(parsed.action)
+            } else if (parsed.type === 'prompt' && parsed.content) {
+              callbacks.onPrompt?.(parsed.content)
+            } else if (parsed.type === 'limited') {
+              callbacks.onLimited?.(parsed.message || '内容受限')
+            } else if (parsed.type === 'error') {
+              callbacks.onError(parsed.message || '处理失败')
+            } else if (parsed.type === 'loading') {
+              callbacks.onLoading?.(parsed.message || '加载中...')
+            } else if (parsed.type === 'loading_done') {
+              callbacks.onLoadingDone?.()
+            } else if (parsed.type === 'meta') {
+              callbacks.onMeta?.(parsed)
+            } else if (parsed.type === 'done') {
+              callbacks.onDone()
+              return
+            }
+          } catch {
+            // skip
+          }
+        }
+      }
+    }
+    callbacks.onDone()
+  } catch (e: any) {
+    callbacks.onError(e.message || 'Stream error')
+  }
+}
+
+/** Execute a site action. */
+export async function executeAction(action: string, params?: Record<string, any>): Promise<Record<string, any>> {
+  const body: Record<string, any> = { action, ...params }
+  const res = await api.post('/agent/execute', body)
+  return res.data
 }

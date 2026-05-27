@@ -88,6 +88,9 @@ class NewsInterpreter:
                 streaming=True,
                 openai_api_key=LLM_API_KEY,
                 openai_api_base=LLM_BASE_URL,
+                request_timeout=120,
+                max_retries=2,
+                extra_body={"enable_thinking": False},
             )
 
     def _build_generate_human_message(

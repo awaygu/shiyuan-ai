@@ -39,6 +39,7 @@ from routers.publish import router as publish_router
 from routers.schedule import router as schedule_router
 from routers.keywords import router as keywords_router
 from routers.prompts import router as prompts_router
+from routers.agent import router as agent_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ app.include_router(publish_router)
 app.include_router(schedule_router)
 app.include_router(keywords_router)
 app.include_router(prompts_router)
+app.include_router(agent_router)
 
 
 @app.on_event("startup")
