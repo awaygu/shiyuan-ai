@@ -10,7 +10,7 @@
       </div>
     </el-header>
 
-    <el-main class="app-main">
+    <el-main class="app-main" :style="store.agentDockedRight ? { paddingRight: store.agentPanelWidth + 'px' } : {}">
       <div class="two-columns" ref="columnsRef">
         <div
           class="column column-left"
@@ -41,6 +41,9 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import NewsList from '@/components/NewsList.vue'
 import NewsDetail from '@/components/NewsDetail.vue'
 import FloatingAgent from '@/components/FloatingAgent.vue'
+import { useNewsStore } from '@/stores'
+
+const store = useNewsStore()
 
 const columnsRef = ref<HTMLElement | null>(null)
 
@@ -158,28 +161,10 @@ html, body, #app {
   min-width: 0;
 }
 
-.resize-handle {
+.two-columns .resize-handle {
   width: 12px;
   flex-shrink: 0;
   cursor: col-resize;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.resize-handle::after {
-  content: '';
-  width: 3px;
-  height: 32px;
-  border-radius: 2px;
-  background: #dcdfe6;
-  transition: background 0.2s, height 0.2s;
-}
-
-.resize-handle:hover::after {
-  background: #409eff;
-  height: 48px;
 }
 
 ::-webkit-scrollbar {

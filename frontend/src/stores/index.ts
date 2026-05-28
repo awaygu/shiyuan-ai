@@ -171,6 +171,9 @@ export const useNewsStore = defineStore('news', () => {
     }
   }
 
+  const agentDockedRight = ref(false)
+  const agentPanelWidth = ref(440)
+
   return {
     newsItems,
     currentSource,
@@ -185,6 +188,8 @@ export const useNewsStore = defineStore('news', () => {
     rssFeeds,
     selectedNews,
     sourceCategories,
+    agentDockedRight,
+    agentPanelWidth,
     loadNews,
     loadMoreNews,
     refreshCurrentSource,

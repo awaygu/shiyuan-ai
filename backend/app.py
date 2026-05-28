@@ -44,27 +44,7 @@ from routers.agent import router as agent_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="新闻爬取与AI解读系统", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(news_router)
-app.include_router(interpret_router)
-app.include_router(publish_router)
-app.include_router(schedule_router)
-app.include_router(keywords_router)
-app.include_router(prompts_router)
-app.include_router(agent_router)
-
-
-@app.on_event("startup")
-async def startup():
+async def lifespan(app: FastAPI):
     import routers.deps as _d
 
     await init_db()
@@ -116,6 +96,27 @@ async def startup():
         from routers.schedule import _newsnow_crawl_loop, _rss_crawl_loop
         asyncio.create_task(_newsnow_crawl_loop())
         asyncio.create_task(_rss_crawl_loop())
+
+    yield
+
+
+app = FastAPI(title="新闻爬取与AI解读系统", version="1.0.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(news_router)
+app.include_router(interpret_router)
+app.include_router(publish_router)
+app.include_router(schedule_router)
+app.include_router(keywords_router)
+app.include_router(prompts_router)
+app.include_router(agent_router)
 
 
 if __name__ == "__main__":

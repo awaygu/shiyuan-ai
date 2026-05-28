@@ -5,32 +5,26 @@
     class="agent-bubble"
     @click="openPanel"
   >
-    <el-badge
-      :value="store.selectedNewsIds.length"
-      :hidden="store.selectedNewsIds.length === 0"
-      :max="99"
-    >
-      <div class="bubble-inner">
-        <svg width="26" height="26" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="glow1" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#7dd3fc"/>
-              <stop offset="100%" stop-color="#38bdf8"/>
-            </linearGradient>
-          </defs>
-          <circle cx="24" cy="24" r="20" stroke="url(#glow1)" stroke-width="2" fill="none" opacity="0.7">
-            <animateTransform attributeName="transform" type="rotate" from="0 24 24" to="360 24 24" dur="8s" repeatCount="indefinite"/>
-          </circle>
-          <circle cx="24" cy="24" r="14" stroke="url(#glow1)" stroke-width="1.5" fill="none" opacity="0.5">
-            <animateTransform attributeName="transform" type="rotate" from="360 24 24" to="0 24 24" dur="6s" repeatCount="indefinite"/>
-          </circle>
-          <path d="M24 14 L28 20 L35 21 L30 26 L31 33 L24 30 L17 33 L18 26 L13 21 L20 20 Z" fill="#38bdf8" opacity="0.9"/>
-          <circle cx="24" cy="24" r="3" fill="#fff" opacity="0.9">
-            <animate attributeName="opacity" values="0.9;0.4;0.9" dur="2s" repeatCount="indefinite"/>
-          </circle>
-        </svg>
-      </div>
-    </el-badge>
+    <div class="bubble-inner" @click="openPanel">
+      <svg width="26" height="26" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="glow1" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#7dd3fc"/>
+            <stop offset="100%" stop-color="#38bdf8"/>
+          </linearGradient>
+        </defs>
+        <circle cx="24" cy="24" r="20" stroke="url(#glow1)" stroke-width="2" fill="none" opacity="0.7">
+          <animateTransform attributeName="transform" type="rotate" from="0 24 24" to="360 24 24" dur="8s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="24" cy="24" r="14" stroke="url(#glow1)" stroke-width="1.5" fill="none" opacity="0.5">
+          <animateTransform attributeName="transform" type="rotate" from="360 24 24" to="0 24 24" dur="6s" repeatCount="indefinite"/>
+        </circle>
+        <path d="M24 14 L28 20 L35 21 L30 26 L31 33 L24 30 L17 33 L18 26 L13 21 L20 20 Z" fill="#38bdf8" opacity="0.9"/>
+        <circle cx="24" cy="24" r="3" fill="#fff" opacity="0.9">
+          <animate attributeName="opacity" values="0.9;0.4;0.9" dur="2s" repeatCount="indefinite"/>
+        </circle>
+      </svg>
+    </div>
   </div>
 
   <!-- Chat panel (expanded) -->
@@ -38,7 +32,7 @@
     v-if="expanded"
     class="agent-panel"
     :style="panelStyle"
-    :class="{ dragging: isDragging || isResizing }"
+    :class="{ dragging: isDragging || isResizing, docked: dockedRight, undocking: undocking }"
     ref="panelRef"
   >
     <!-- Draggable header -->
@@ -52,46 +46,7 @@
         <span>AI 助手</span>
       </div>
       <div class="header-actions">
-        <span class="header-btn" @click.stop="expanded = false">✕</span>
-      </div>
-    </div>
-
-    <!-- Context bar + quick actions -->
-    <div class="action-bar">
-      <div class="action-bar-info">
-        <span v-if="store.currentDetailNews" class="context-tag">
-          📄 {{ store.currentDetailNews.title?.slice(0, 20) }}{{ (store.currentDetailNews.title?.length || 0) > 20 ? '...' : '' }}
-        </span>
-        <span v-if="store.selectedNewsIds.length > 0" class="context-tag">
-          ✅ 已选 {{ store.selectedNewsIds.length }} 条
-        </span>
-        <span v-if="!store.currentDetailNews && store.selectedNewsIds.length === 0" class="context-tag hint">
-          请先选择新闻
-        </span>
-      </div>
-      <div class="action-bar-btns">
-        <button
-          class="action-chip"
-          :disabled="!store.currentDetailNews || generating"
-          @click="quickInterpret"
-        >🔍 解读</button>
-        <button
-          class="action-chip"
-          :disabled="store.selectedNewsIds.length === 0 || generating"
-          @click="quickGenerate('xiaohongshu')"
-        >✨ 小红书</button>
-        <button
-          class="action-chip"
-          :disabled="store.selectedNewsIds.length === 0 || generating"
-          @click="quickGenerate('wechat_mp')"
-        >📰 公众号</button>
-        <button
-          class="action-chip"
-          :disabled="store.selectedNewsIds.length === 0 || generating"
-          @click="quickGenerate('douyin')"
-        >🎬 抖音</button>
-        <button class="action-chip smart" :disabled="generating" @click="fetchTrends">🔥 热点</button>
-        <button class="action-chip smart" :disabled="generating" @click="openBriefing">📋 简报</button>
+        <span class="header-btn" @click.stop="closePanel">✕</span>
       </div>
     </div>
 
@@ -116,8 +71,7 @@
               </div>
               <div v-if="msg.promptExpanded" class="prompt-body">{{ msg.prompt }}</div>
             </div>
-            <div class="msg-content" v-html="renderMarkdown(msg.content)"></div>
-            <span v-if="msg.streaming" class="streaming-cursor">▊</span>
+            <div class="msg-content" v-html="renderMsgHtml(msg)"></div>
           </div>
           <!-- Action buttons for completed article/interpret results -->
           <div
@@ -145,42 +99,69 @@
       </div>
     </div>
 
-    <!-- Input -->
+    <!-- Footer -->
     <div class="panel-footer">
-      <div class="input-row">
+      <!-- Toolbar row: context tags + action chips -->
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span v-if="store.currentDetailNews" class="ctx-tag">
+            {{ store.currentDetailNews.title?.slice(0, 16) }}{{ (store.currentDetailNews.title?.length || 0) > 16 ? '…' : '' }}
+          </span>
+          <span v-if="store.selectedNewsIds.length > 0" class="ctx-tag">已选 {{ store.selectedNewsIds.length }} 条</span>
+        </div>
+        <div class="toolbar-right">
+          <button :disabled="!store.currentDetailNews || generating" @click="quickInterpret">解读</button>
+          <button :disabled="(!store.currentDetailNews && store.selectedNewsIds.length === 0) || generating" @click="quickGenerate('xiaohongshu')">小红书</button>
+          <button :disabled="(!store.currentDetailNews && store.selectedNewsIds.length === 0) || generating" @click="quickGenerate('wechat_mp')">公众号</button>
+          <button :disabled="(!store.currentDetailNews && store.selectedNewsIds.length === 0) || generating" @click="quickGenerate('douyin')">抖音</button>
+          <button :disabled="generating" @click="fetchTrends">热点</button>
+          <button :disabled="generating" @click="openBriefing">简报</button>
+        </div>
+      </div>
+      <!-- Input area -->
+      <div class="input-area">
         <el-input
           v-model="chatMessage"
-          placeholder="随便聊聊，或让我帮你做事..."
-          size="default"
-          clearable
+          type="textarea"
+          :autosize="{ minRows: 1, maxRows: 5 }"
+          placeholder="输入消息，Enter 发送，Shift+Enter 换行"
           :disabled="generating"
-          @keyup.enter="sendChat"
+          @keydown.enter.exact="onInputEnter"
           class="chat-input"
         />
-        <button
-          class="send-btn"
-          :disabled="!chatMessage.trim() || generating"
-          @click="sendChat"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <button class="send-btn" :disabled="!chatMessage.trim() || generating" @click="sendChat">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path d="M5 12H19M19 12L13 6M19 12L13 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
       </div>
     </div>
 
+    <!-- Snap preview zone -->
+    <div
+      v-if="isDragging && snapPreview"
+      class="snap-preview"
+    ></div>
+
     <!-- Resize handles -->
+    <template v-if="!dockedRight">
+      <div class="resize-handle resize-t" @mousedown.stop="(e) => startResize(e, 't')"></div>
+      <div class="resize-handle resize-tl" @mousedown.stop="(e) => startResize(e, 'tl')"></div>
+      <div class="resize-handle resize-tr" @mousedown.stop="(e) => startResize(e, 'tr')"></div>
+    </template>
+    <div class="resize-handle resize-l" @mousedown.stop="(e) => startResize(e, 'l')"></div>
     <div class="resize-handle resize-r" @mousedown.stop="(e) => startResize(e, 'r')"></div>
     <div class="resize-handle resize-b" @mousedown.stop="(e) => startResize(e, 'b')"></div>
-    <div class="resize-handle resize-rb" @mousedown.stop="(e) => startResize(e, 'rb')"></div>
+    <div class="resize-handle resize-bl" @mousedown.stop="(e) => startResize(e, 'bl')"></div>
+    <div class="resize-handle resize-br" @mousedown.stop="(e) => startResize(e, 'br')"></div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useNewsStore } from '@/stores'
-import { streamAgentChat, streamInterpret, streamGenerateArticle, publishArticle as apiPublishArticle, fetchTrends as apiFetchTrends, compareSources as apiCompareSources, searchNews as apiSearchNews, streamBriefing, executeAction } from '@/api'
+import { streamAgentChat, streamInterpret, streamGenerateArticle, publishArticle as apiPublishArticle, fetchTrends as apiFetchTrends, compareSources as apiCompareSources, searchNews as apiSearchNews, streamBriefing } from '@/api'
 import type { AgentAction } from '@/api'
 import type { StyleType } from '@/types'
 import { marked } from 'marked'
@@ -190,15 +171,26 @@ const store = useNewsStore()
 const expanded = ref(false)
 const isDragging = ref(false)
 const isResizing = ref(false)
-const resizeDir = ref<'r' | 'b' | 'rb' | null>(null)
+const resizeDir = ref<'t' | 'b' | 'l' | 'r' | 'tl' | 'tr' | 'bl' | 'br' | null>(null)
 const panelPos = ref({ x: 0, y: 0 })
 const panelW = ref(440)
 const panelH = ref(580)
 const dragOffset = ref({ x: 0, y: 0 })
 const resizeStart = ref({ x: 0, y: 0, w: 0, h: 0, px: 0, py: 0 })
+const dockedRight = ref(false)
+const preDockW = ref(440)
+const preDockH = ref(580)
+const undocking = ref(false)
+
+const SNAP_THRESHOLD = 20
 
 const MIN_W = 340
 const MIN_H = 420
+
+watch([dockedRight, panelW], () => {
+  store.agentDockedRight = dockedRight.value
+  store.agentPanelWidth = panelW.value
+})
 
 const messagesRef = ref<HTMLElement | null>(null)
 const chatMessage = ref('')
@@ -220,25 +212,64 @@ const messages = ref<ChatMessage[]>([
   { role: 'assistant', content: '你好！我可以和你聊天、解读新闻、搜索热点、生成文章，还能帮你执行网站操作。直接说就行！', type: 'chat' },
 ])
 
-const panelStyle = computed(() => ({
-  left: panelPos.value.x + 'px',
-  top: panelPos.value.y + 'px',
-  width: panelW.value + 'px',
-  height: panelH.value + 'px',
-}))
+const panelStyle = computed(() => {
+  if (dockedRight.value) {
+    return {
+      right: '0px',
+      left: 'auto',
+      top: '0px',
+      width: panelW.value + 'px',
+      height: '100vh',
+      borderRadius: '0',
+    }
+  }
+  return {
+    left: panelPos.value.x + 'px',
+    top: panelPos.value.y + 'px',
+    width: panelW.value + 'px',
+    height: panelH.value + 'px',
+  }
+})
+
+const snapPreview = computed(() => {
+  if (!isDragging.value) return false
+  const vx = window.innerWidth
+  const rightEdge = panelPos.value.x + panelW.value
+  return rightEdge >= vx - SNAP_THRESHOLD
+})
 
 function openPanel() {
   const vx = window.innerWidth
   const vy = window.innerHeight
   panelPos.value = {
-    x: vx - panelW.value - 32,
-    y: vy - panelH.value - 32,
+    x: (vx - panelW.value) / 2,
+    y: (vy - panelH.value) / 2,
   }
   expanded.value = true
 }
 
+function closePanel() {
+  expanded.value = false
+  dockedRight.value = false
+}
+
 function renderMarkdown(text: string): string {
   return marked.parse(text, { async: false }) as string
+}
+
+function renderMsgHtml(msg: ChatMessage): string {
+  let html = renderMarkdown(msg.content)
+  if (msg.streaming) {
+    const cursor = '<span class="streaming-cursor">▊</span>'
+    const lastClose = html.lastIndexOf('</')
+    if (lastClose > 0) {
+      const tagEnd = html.indexOf('>', lastClose)
+      html = html.slice(0, tagEnd) + cursor + html.slice(tagEnd)
+    } else {
+      html += cursor
+    }
+  }
+  return html
 }
 
 function scrollToBottom() {
@@ -565,27 +596,30 @@ async function doSearch(keyword: string) {
 async function handleAction(action: AgentAction) {
   generating.value = false
   const act = action.action
-  if (act === 'refresh_news') {
-    try {
-      const res = await executeAction('refresh_news')
-      if (res.success) {
-        ElMessage.success(`新闻已刷新，共 ${res.total_news} 条`)
-        await store.loadNews()
-      }
-    } catch { ElMessage.error('刷新新闻失败') }
-  } else if (act === 'refresh_source') {
-    try {
+  try {
+    if (act === 'refresh_news') {
+      await store.loadNews()
+      ElMessage.success('新闻已刷新')
+    } else if (act === 'refresh_source') {
       const src = action.source || store.currentSource
-      const res = await executeAction('refresh_source', { source: src })
-      if (res.success) {
-        ElMessage.success(`${src} 已刷新，新增 ${res.new} 条`)
-        await store.loadNews(src)
-      }
-    } catch { ElMessage.error('刷新源失败') }
+      await store.loadNews(src)
+      ElMessage.success(`${src} 已刷新`)
+    } else {
+      console.warn('未处理的工具类型:', act)
+    }
+  } catch (error) {
+    console.error('工具执行失败:', error)
+    ElMessage.error(`操作失败: ${error instanceof Error ? error.message : '未知错误'}`)
   }
 }
 
 // ── Chat ────────────────────────────────────────────────────
+
+function onInputEnter(e: KeyboardEvent) {
+  if (e.ctrlKey || e.shiftKey) return
+  e.preventDefault()
+  sendChat()
+}
 
 async function sendChat() {
   const msg = chatMessage.value.trim()
@@ -615,6 +649,10 @@ async function sendChat() {
   let pendingActions: AgentAction[] = []
 
   streamAgentChat(msg, newsIds, {
+    onPrompt(prompt) {
+      messages.value[currentMsgIdx].prompt = prompt
+      messages.value[currentMsgIdx].promptExpanded = false
+    },
     onLoading(message) {
       isLoading = true
       messages.value[currentMsgIdx].content = `⏳ ${message}`
@@ -660,6 +698,14 @@ async function sendChat() {
 
 function startDrag(e: MouseEvent) {
   e.preventDefault()
+  if (dockedRight.value) {
+    preDockW.value = panelW.value
+    preDockH.value = panelH.value
+    const vx = window.innerWidth
+    panelPos.value = { x: vx - panelW.value, y: 0 }
+    panelH.value = preDockH.value
+    dockedRight.value = false
+  }
   isDragging.value = true
   dragOffset.value = {
     x: e.clientX - panelPos.value.x,
@@ -671,8 +717,9 @@ function startDrag(e: MouseEvent) {
 
 // ── Resize ──────────────────────────────────────────────────
 
-function startResize(e: MouseEvent, dir: 'r' | 'b' | 'rb') {
+function startResize(e: MouseEvent, dir: 't' | 'b' | 'l' | 'r' | 'tl' | 'tr' | 'bl' | 'br') {
   e.preventDefault()
+  e.stopPropagation()
   isResizing.value = true
   resizeDir.value = dir
   resizeStart.value = {
@@ -683,6 +730,11 @@ function startResize(e: MouseEvent, dir: 'r' | 'b' | 'rb') {
     px: panelPos.value.x,
     py: panelPos.value.y,
   }
+  const cursors: Record<string, string> = {
+    t: 'n-resize', b: 's-resize', l: 'w-resize', r: 'e-resize',
+    tl: 'nw-resize', tr: 'ne-resize', bl: 'sw-resize', br: 'se-resize',
+  }
+  document.body.style.cursor = cursors[dir] || 'default'
   document.body.style.userSelect = 'none'
 }
 
@@ -699,20 +751,38 @@ function onMouseMove(e: MouseEvent) {
     const dx = e.clientX - resizeStart.value.x
     const dy = e.clientY - resizeStart.value.y
     const dir = resizeDir.value
-    if (dir === 'r' || dir === 'rb') {
-      panelW.value = Math.max(MIN_W, resizeStart.value.w + dx)
+    if (!dir) return
+
+    let newW = resizeStart.value.w
+    let newH = resizeStart.value.h
+    let newX = resizeStart.value.px
+    let newY = resizeStart.value.py
+
+    if (dir === 'r' || dir === 'tr' || dir === 'br') {
+      newW = Math.max(MIN_W, resizeStart.value.w + dx)
     }
-    if (dir === 'b' || dir === 'rb') {
-      panelH.value = Math.max(MIN_H, resizeStart.value.h + dy)
+    if (dir === 'l' || dir === 'tl' || dir === 'bl') {
+      newW = Math.max(MIN_W, resizeStart.value.w - dx)
+      newX = resizeStart.value.px + resizeStart.value.w - newW
     }
+    if (dir === 'b' || dir === 'bl' || dir === 'br') {
+      newH = Math.max(MIN_H, resizeStart.value.h + dy)
+    }
+    if (dir === 't' || dir === 'tl' || dir === 'tr') {
+      newH = Math.max(MIN_H, resizeStart.value.h - dy)
+      newY = resizeStart.value.py + resizeStart.value.h - newH
+    }
+
     const vx = window.innerWidth
     const vy = window.innerHeight
-    if (resizeStart.value.px + panelW.value > vx) {
-      panelPos.value.x = vx - panelW.value
-    }
-    if (resizeStart.value.py + panelH.value > vy) {
-      panelPos.value.y = vy - panelH.value
-    }
+    if (newX < 0) { newW += newX; newX = 0 }
+    if (newY < 0) { newH += newY; newY = 0 }
+    if (newX + newW > vx) newW = vx - newX
+    if (newY + newH > vy) newH = vy - newY
+
+    panelW.value = Math.max(MIN_W, newW)
+    panelH.value = Math.max(MIN_H, newH)
+    panelPos.value = { x: newX, y: newY }
   }
 }
 
@@ -720,10 +790,18 @@ function onMouseUp() {
   if (isDragging.value) {
     isDragging.value = false
     document.body.style.cursor = ''
+    const vx = window.innerWidth
+    const rightEdge = panelPos.value.x + panelW.value
+    if (rightEdge >= vx - SNAP_THRESHOLD) {
+      preDockW.value = panelW.value
+      preDockH.value = panelH.value
+      dockedRight.value = true
+    }
   }
   if (isResizing.value) {
     isResizing.value = false
     resizeDir.value = null
+    document.body.style.cursor = ''
   }
   document.body.style.userSelect = ''
 }
@@ -749,26 +827,20 @@ onBeforeUnmount(() => {
 }
 
 .bubble-inner {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #0c1629, #1a2744);
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow:
-    0 0 16px rgba(56, 189, 248, 0.35),
-    0 0 32px rgba(56, 189, 248, 0.15),
-    inset 0 0 12px rgba(56, 189, 248, 0.1);
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.25);
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .bubble-inner:hover {
-  transform: scale(1.08);
-  box-shadow:
-    0 0 24px rgba(56, 189, 248, 0.5),
-    0 0 48px rgba(56, 189, 248, 0.2),
-    inset 0 0 16px rgba(56, 189, 248, 0.15);
+  transform: scale(1.06);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.35);
 }
 
 .agent-panel {
@@ -776,16 +848,38 @@ onBeforeUnmount(() => {
   z-index: 2000;
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
+  border-radius: 14px;
   background: #fff;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(99, 102, 241, 0.06);
   overflow: hidden;
-  transition: opacity 0.2s;
+  transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease, border-radius 0.25s ease;
 }
 
 .agent-panel.dragging {
-  transition: none;
   user-select: none;
+  transition: none;
+}
+
+.agent-panel.docked {
+  border-radius: 0;
+  transition: none;
+}
+
+.agent-panel.undocking {
+  transition: left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease, border-radius 0.3s ease;
+}
+
+.snap-preview {
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: 4px;
+  height: 100vh;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  opacity: 0.5;
+  z-index: 1999;
+  pointer-events: none;
+  border-radius: 0 0 0 2px;
 }
 
 .panel-header {
@@ -794,8 +888,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   height: 48px;
   padding: 0 16px;
-  background: linear-gradient(135deg, #0c1629, #1a2744);
-  color: #e0f2fe;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
   cursor: move;
   flex-shrink: 0;
 }
@@ -804,13 +897,14 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
 }
 
 .header-actions {
   display: flex;
-  gap: 8px;
+  gap: 4px;
 }
 
 .header-btn {
@@ -819,114 +913,30 @@ onBeforeUnmount(() => {
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: 50%;
-  font-size: 14px;
-  color: #94a3b8;
+  border-radius: 6px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .header-btn:hover {
-  background: rgba(148, 163, 184, 0.2);
-  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
 }
-
-/* ── Action Bar ─────────────────────────────────────────────── */
-
-.action-bar {
-  flex-shrink: 0;
-  padding: 10px 14px;
-  border-bottom: 1px solid #f0f2f5;
-  background: #fafbfc;
-}
-
-.action-bar-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.context-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  font-size: 12px;
-  color: #606266;
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  padding: 3px 8px;
-  line-height: 1.4;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.context-tag.hint {
-  color: #c0c4cc;
-  border-color: #ebeef5;
-}
-
-.action-bar-btns {
-  display: flex;
-  gap: 5px;
-  flex-wrap: wrap;
-}
-
-.action-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  font-size: 13px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid #dcdfe6;
-  background: #fff;
-  color: #606266;
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-
-.action-chip:hover:not(:disabled) {
-  border-color: #409eff;
-  color: #409eff;
-  background: #ecf5ff;
-}
-
-.action-chip:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.action-chip.smart {
-  border-color: #e6a23c;
-  color: #e6a23c;
-}
-
-.action-chip.smart:hover:not(:disabled) {
-  border-color: #e6a23c;
-  background: #fdf6ec;
-  color: #cf8e17;
-}
-
-/* ── Messages ──────────────────────────────────────────────── */
 
 .panel-body {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 16px;
+  padding: 16px;
   min-height: 0;
-  background: #fafbfc;
+  background: #f8fafc;
 }
 
 .msg-row {
   display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 14px;
 }
 
 .msg-row.user {
@@ -939,31 +949,32 @@ onBeforeUnmount(() => {
 
 .avatar-ai,
 .avatar-user {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .avatar-ai {
-  background: #ecf5ff;
+  background: #eff6ff;
+  color: #6366f1;
 }
 
 .avatar-user {
-  background: #409eff;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
   color: #fff;
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: 500;
+  font-size: 11px;
 }
 
 .msg-bubble-wrap {
-  max-width: 80%;
+  max-width: 85%;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
 .msg-row.user .msg-bubble-wrap {
@@ -971,96 +982,103 @@ onBeforeUnmount(() => {
 }
 
 .msg-bubble {
-  padding: 10px 14px;
-  border-radius: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
   background: #fff;
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 13.5px;
+  line-height: 1.65;
   word-break: break-word;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .msg-row.user .msg-bubble {
-  background: #409eff;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
   color: #fff;
 }
 
 .prompt-block {
-  margin-bottom: 8px;
-  border: 1px solid #ebeef5;
+  margin-bottom: 6px;
   border-radius: 6px;
   overflow: hidden;
+  background: #f8fafc;
+  border: 1px solid #e0e7ff;
 }
 
 .prompt-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 5px 10px;
-  background: #fafbfc;
-  font-size: 12px;
-  color: #909399;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: #818cf8;
   cursor: pointer;
+}
+
+.prompt-header:hover {
+  background: #eef2ff;
+}
+
+.prompt-toggle {
+  font-size: 9px;
 }
 
 .prompt-body {
   padding: 8px 10px;
-  font-size: 12px;
-  color: #606266;
-  background: #fafbfc;
-  border-top: 1px solid #ebeef5;
+  font-size: 11px;
+  color: #64748b;
+  border-top: 1px solid #e0e7ff;
   max-height: 140px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
-  font-family: Consolas, Monaco, monospace;
+  font-family: 'SF Mono', Consolas, monospace;
   line-height: 1.5;
 }
 
 .msg-content :deep(h1),
 .msg-content :deep(h2),
 .msg-content :deep(h3) {
-  margin: 8px 0 4px;
+  margin: 6px 0 3px;
   font-weight: 600;
+  color: #1e293b;
 }
-
-.msg-content :deep(h1) { font-size: 18px; }
-.msg-content :deep(h2) { font-size: 17px; }
-.msg-content :deep(h3) { font-size: 16px; }
-.msg-content :deep(p) { margin: 4px 0; }
+.msg-content :deep(h1) { font-size: 17px; }
+.msg-content :deep(h2) { font-size: 15px; }
+.msg-content :deep(h3) { font-size: 14px; }
+.msg-content :deep(p) { margin: 3px 0; }
 .msg-content :deep(ul),
-.msg-content :deep(ol) { padding-left: 20px; margin: 4px 0; }
-.msg-content :deep(li) { margin: 2px 0; }
-.msg-content :deep(strong) { font-weight: 600; }
+.msg-content :deep(ol) { padding-left: 18px; margin: 3px 0; }
+.msg-content :deep(li) { margin: 1px 0; }
+.msg-content :deep(strong) { font-weight: 600; color: #1e293b; }
 .msg-content :deep(em) { font-style: italic; }
 .msg-content :deep(code) {
-  background: rgba(0, 0, 0, 0.06);
-  padding: 2px 5px;
+  background: #eef2ff;
+  padding: 1px 5px;
   border-radius: 3px;
-  font-size: 13px;
+  font-size: 12.5px;
+  color: #4338ca;
 }
 .msg-content :deep(pre) {
-  background: rgba(0, 0, 0, 0.06);
+  background: #f1f5f9;
   padding: 8px 12px;
   border-radius: 6px;
   overflow-x: auto;
-  font-size: 13px;
+  font-size: 12.5px;
 }
 .msg-content :deep(blockquote) {
-  border-left: 3px solid #dcdfe6;
-  padding-left: 12px;
-  color: #606266;
-  margin: 4px 0;
+  border-left: 2px solid #a5b4fc;
+  padding-left: 10px;
+  color: #64748b;
+  margin: 3px 0;
 }
 
 .msg-row.user .msg-content :deep(code) {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .streaming-cursor {
   display: inline;
   animation: blink 0.7s infinite;
-  color: #409eff;
+  color: #6366f1;
   font-weight: bold;
 }
 
@@ -1069,156 +1087,218 @@ onBeforeUnmount(() => {
   51%, 100% { opacity: 0; }
 }
 
-/* ── Message Actions ───────────────────────────────────────── */
-
 .msg-actions {
   display: flex;
-  gap: 5px;
-  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .msg-action-btn {
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 6px;
-  border: 1px solid #e4e7ed;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #e0e7ff;
   background: #fff;
-  color: #606266;
+  color: #6366f1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.msg-action-btn:hover {
+  border-color: #818cf8;
+  color: #4f46e5;
+  background: #eef2ff;
+}
+
+.panel-footer {
+  flex-shrink: 0;
+  background: #fff;
+  border-top: 1px solid #e0e7ff;
+  padding: 8px 12px 12px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+  min-height: 24px;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.ctx-tag {
+  font-size: 11px;
+  color: #818cf8;
+  background: #eef2ff;
+  border: 1px solid #e0e7ff;
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.toolbar-right button {
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: #64748b;
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
 }
 
-.msg-action-btn:hover {
-  border-color: #409eff;
-  color: #409eff;
-  background: #ecf5ff;
+.toolbar-right button:hover:not(:disabled) {
+  background: #eef2ff;
+  color: #4f46e5;
 }
 
-/* ── Footer ────────────────────────────────────────────────── */
-
-.panel-footer {
-  flex-shrink: 0;
-  padding: 12px 16px;
-  border-top: 1px solid #ebeef5;
-  background: #fff;
+.toolbar-right button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
-.input-row {
+.input-area {
   display: flex;
-  gap: 8px;
-  align-items: center;
+  align-items: flex-end;
+  gap: 6px;
+  background: #f8fafc;
+  border: 1px solid #e0e7ff;
+  border-radius: 10px;
+  padding: 4px 4px 4px 2px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.input-area:focus-within {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.12);
 }
 
 .chat-input {
   flex: 1;
 }
 
-.chat-input :deep(.el-input__wrapper) {
-  border-radius: 8px;
-  box-shadow: 0 0 0 1px #dcdfe6 inset;
-  padding: 4px 12px;
-  font-size: 14px;
+.chat-input :deep(.el-textarea__inner) {
+  border: none;
+  box-shadow: none;
+  padding: 6px 10px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  resize: none;
+  background: transparent;
+  color: #1e293b;
 }
 
-.chat-input :deep(.el-input__wrapper:hover) {
-  box-shadow: 0 0 0 1px #c0c4cc inset;
-}
-
-.chat-input :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 1px #409eff inset;
+.chat-input :deep(.el-textarea__inner:focus) {
+  box-shadow: none;
 }
 
 .send-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   border: none;
-  background: linear-gradient(135deg, #409eff, #337ecc);
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
   color: #fff;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: all 0.2s;
-  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.3);
+  transition: all 0.15s;
 }
 
 .send-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #66b1ff, #409eff);
-  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.4);
-  transform: translateY(-1px);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
 }
 
 .send-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.25;
   cursor: not-allowed;
-  box-shadow: none;
 }
-
-.send-btn:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-/* ── Resize Handles ────────────────────────────────────────── */
 
 .resize-handle {
   position: absolute;
-  z-index: 10;
+  z-index: 15;
 }
 
-.resize-r {
-  top: 0;
-  right: 0;
-  width: 8px;
-  height: 100%;
-  cursor: e-resize;
-}
-
-.resize-r:hover,
-.resize-r:active {
-  background: linear-gradient(to right, transparent, rgba(64, 158, 255, 0.15));
+.resize-t {
+  top: -3px;
+  left: 14px;
+  right: 14px;
+  height: 8px;
+  cursor: n-resize;
 }
 
 .resize-b {
-  bottom: 0;
-  left: 0;
-  width: 100%;
+  bottom: -3px;
+  left: 14px;
+  right: 14px;
   height: 8px;
   cursor: s-resize;
 }
 
-.resize-b:hover,
-.resize-b:active {
-  background: linear-gradient(to bottom, transparent, rgba(64, 158, 255, 0.15));
+.resize-l {
+  top: 14px;
+  left: -3px;
+  bottom: 14px;
+  width: 8px;
+  cursor: w-resize;
 }
 
-.resize-rb {
-  right: 0;
-  bottom: 0;
-  width: 16px;
-  height: 16px;
+.resize-r {
+  top: 14px;
+  right: -3px;
+  bottom: 14px;
+  width: 8px;
+  cursor: e-resize;
+}
+
+.resize-tl {
+  top: -3px;
+  left: -3px;
+  width: 14px;
+  height: 14px;
+  cursor: nw-resize;
+}
+
+.resize-tr {
+  top: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  cursor: ne-resize;
+}
+
+.resize-bl {
+  bottom: -3px;
+  left: -3px;
+  width: 14px;
+  height: 14px;
+  cursor: sw-resize;
+}
+
+.resize-br {
+  bottom: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
   cursor: se-resize;
-}
-
-.resize-rb::after {
-  content: '';
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 10px;
-  height: 10px;
-  border-right: 2px solid #b0b8c4;
-  border-bottom: 2px solid #b0b8c4;
-  border-radius: 0 0 2px 0;
-  opacity: 0.5;
-  transition: opacity 0.15s;
-}
-
-.resize-rb:hover::after,
-.resize-rb:active::after {
-  opacity: 1;
-  border-color: #409eff;
 }
 </style>

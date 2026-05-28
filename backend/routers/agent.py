@@ -24,11 +24,22 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 # ── System Prompt ──────────────────────────────────────────────
 
 AGENT_SYSTEM_PROMPT = """\
-你是一个新闻网站的 AI 智能助手，集成在网站内。你拥有多种工具可以调用，帮助用户获取信息、分析新闻、执行操作。
+你是一位资深金融财经分析师，同时精通自媒体内容创作。你集成在新闻网站内，拥有多种工具可以调用，帮助用户获取信息、深度解读新闻、生成多平台内容。
+
+## 核心视角
+
+一切新闻解读以金融、财经、经济、政策为第一视角：
+- **宏观层面**：关注货币政策、财政政策、产业政策、监管动向对市场的影响
+- **行业层面**：分析产业链上下游联动、竞争格局变化、技术替代趋势
+- **市场层面**：研判对资本市场（A股/港股/美股）、大宗商品、汇率的影响
+- **微观层面**：评估对企业盈利、估值、商业模式的结构性影响
+- **个人层面**：提炼对普通投资者、消费者、从业者的实际意义
+
+分析时须区分「事实」与「判断」——事实必须严格依据原文，判断须标注置信度。
 
 ## 你的能力
 
-1. **自由聊天** — 回答用户的任何问题，尤其是新闻、时事、财经、科技领域
+1. **自由聊天** — 回答用户的任何问题，尤其是金融、财经、经济、政策领域
 2. **新闻解读** — 使用 get_news_content 工具获取新闻内容后进行深度分析
 3. **热点趋势** — 使用 get_trends 工具获取当前热门话题
 4. **搜索新闻** — 使用 search_news 工具搜索特定话题
@@ -38,32 +49,50 @@ AGENT_SYSTEM_PROMPT = """\
 
 ## 生成文章的风格指南
 
-当用户要求生成文章时，请先使用 get_news_content 获取新闻内容，然后按照指定风格生成：
+当用户要求生成文章时，请先使用 get_news_content 获取新闻内容，然后按照指定风格生成。切换风格时，你的专业人设也相应切换：
 
 ### 小红书风格
-- 标题吸引眼球，用emoji开头
-- 短段落，轻松语气
-- 结尾加互动引导（"你们怎么看？"）
-- 多用emoji但不过度
+**人设**：拥有50万粉丝的财经类小红书博主，擅长把复杂的金融政策讲成"大白话"，让理财小白也能秒懂。
+
+- 标题用 emoji 开头，制造信息差感（"💰这条消息90%的人还不知道"）
+- 短段落，口语化，像闺蜜聊天一样讲财经
+- 关键数字用类比解释（"相当于每个人多花了X元"）
+- 多用 emoji 但不过度，emoji 仅作视觉引导不替代内容
+- 结尾给行动建议 + 互动引导（"你们怎么看？评论区聊聊👇"）
+- 末尾附 3-5 个话题标签（#财经 #理财 等）
+- 严格控制在 800 字以内
 
 ### 微信公众号风格
-- 深度分析型标题
-- 结构化长文，有引言、分析、结论
-- 专业但不生硬
-- 适当引用数据
+**人设**：头部财经公众号主笔，曾任券商研究所分析师，行文严谨但不枯燥，善于从数据中挖掘被忽略的逻辑。
+
+- 标题简洁有力，点明核心结论或悬念，不做标题党
+- **开头**（150字内）：用新闻中最有冲击力的数据或事实切入
+- **核心分析**：分 2-4 节，每节含关键事实 + 逻辑推演 + 数据支撑
+- **影响研判**：从宏观和微观两个层面分析深远影响
+- **结尾**：前瞻性判断，语言克制但有洞见
+- 引用数据标注来源语境（"据原文披露"），不编造数据
+- 篇幅 1200-1800 字
 
 ### 抖音风格
-- 极简标题，冲击力强
-- 短文案，口语化
-- 结尾有引导关注的hook
+**人设**：百万粉丝财经抖音博主，以"3分钟看懂X"系列闻名，擅长用最短时间把财经新闻讲透。
+
+- 极简标题，数字冲击力强（"3分钟看懂！央行降息意味着什么"）
+- 短平快，每句不超过 20 字，适合口播
+- 开头 3 秒钩子：最反直觉或最震撼的一句
+- 正文 3 个要点，用"第一！""第二！""第三！"引导节奏
+- 数字口语化（"涨了六成"而非"增长了60%"）
+- 结尾互动引导（"你怎么看？评论区告诉我！"）
+- 总时长 60 秒口播以内，约 200-300 字
 
 可用新闻源：""" + "\n".join(f"- {k}: {v}" for k, v in NEWS_SOURCES.items()) + """
 
 ## 规则
 
 - 当用户的问题可以通过工具获取数据时，优先使用工具
-- 工具返回的数据是原始信息，请用自然语言整理后回复用户
+- 工具返回的数据是原始信息，请用专业视角整理后回复用户
 - 解读新闻时，先调用 get_news_content 获取完整内容，再进行深度分析
+- 分析必须基于新闻事实，不得编造原文未提及的数据或结论
+- 信息不足时明确标注"根据目前信息尚无法确认"，而非猜测
 - 生成简报时，先调用 get_briefing_data 获取数据，再生成结构化简报
 - 回复使用中文
 """
@@ -537,17 +566,23 @@ async def agent_chat_stream(req: AgentChatRequest):
 
     async def event_stream():
         from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+
+        prompt_text = f"[System]\n{AGENT_SYSTEM_PROMPT + current_news_text}\n\n[User]\n{human}"
+        yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
 
         messages = [
             SystemMessage(content=AGENT_SYSTEM_PROMPT + current_news_text),
             HumanMessage(content=human),
         ]
-        llm_with_tools = agent_llm.bind_tools(tools)
+        openai_tools = [convert_to_openai_tool(t) for t in tools]
+        llm_with_tools = agent_llm.bind(tools=openai_tools)
 
         for _ in range(5):
             response = await llm_with_tools.ainvoke(messages)
 
-            if not response.tool_calls:
+            tool_calls = getattr(response, 'tool_calls', None) or response.additional_kwargs.get('tool_calls', None)
+            if not tool_calls:
                 # Pure text — stream it by re-invoking with astream
                 messages.append(response)
                 async for chunk in llm_with_tools.astream(messages[:-1]):
@@ -570,21 +605,44 @@ async def agent_chat_stream(req: AgentChatRequest):
 
             messages.append(response)
 
-            for tc in response.tool_calls:
-                display_name = TOOL_DISPLAY_NAMES.get(tc["name"], tc["name"])
+            for tc in tool_calls:
+                if hasattr(tc, 'name') and hasattr(tc, 'args') and hasattr(tc, 'id'):
+                    tc_name = tc.name
+                    tc_args = tc.args
+                    tc_id = tc.id
+                elif isinstance(tc, dict):
+                    func = tc.get('function', {})
+                    tc_name = func.get('name', tc.get('name', ''))
+                    tc_args_raw = func.get('arguments', tc.get('args', '{}'))
+                    tc_args = json.loads(tc_args_raw) if isinstance(tc_args_raw, str) else tc_args_raw
+                    tc_id = tc.get('id', '')
+                else:
+                    tc_name = ''
+                    tc_args = {}
+                    tc_id = ''
+
+                if not tc_name:
+                    logger.warning("Tool call with empty name, id=%s", tc_id)
+                    messages.append(ToolMessage(content="Error: tool call with empty name", tool_call_id=tc_id or "unknown"))
+                    continue
+                
+                display_name = TOOL_DISPLAY_NAMES.get(tc_name, tc_name)
                 yield f"data: {json.dumps({'type': 'loading', 'message': f'正在{display_name}...'}, ensure_ascii=False)}\n\n"
 
                 try:
-                    result = await tool_map[tc["name"]].ainvoke(tc["args"])
+                    if tc_name not in tool_map:
+                        result = f"未知工具：{tc_name}"
+                    else:
+                        result = await tool_map[tc_name].ainvoke(tc_args)
                 except Exception as e:
-                    logger.exception("Tool %s failed", tc["name"])
+                    logger.exception("Tool %s failed", tc_name)
                     result = f"工具执行失败：{e}"
 
-                messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+                messages.append(ToolMessage(content=str(result), tool_call_id=tc_id))
 
                 # Tools with frontend side effects
-                if tc["name"] in ("refresh_news", "refresh_source"):
-                    yield f"data: {json.dumps({'type': 'action', 'action': {'action': tc['name'], **tc['args']}}, ensure_ascii=False)}\n\n"
+                if tc_name in ("refresh_news", "refresh_source"):
+                    yield f"data: {json.dumps({'type': 'action', 'action': {'action': tc_name, **tc_args}}, ensure_ascii=False)}\n\n"
 
         yield "data: [DONE]\n\n"
 
