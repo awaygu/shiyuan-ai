@@ -56,6 +56,8 @@ import { computed, ref } from 'vue'
 import { useNewsStore } from '@/stores'
 import type { StyleType } from '@/types'
 
+defineProps<{ kbId: string }>()
+
 const store = useNewsStore()
 const generating = ref(false)
 

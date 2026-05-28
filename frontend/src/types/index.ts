@@ -62,8 +62,20 @@ export const PLATFORM_LABELS: Record<string, string> = {
 
 // ── Knowledge Base ────────────────────────────────────────────
 
+export interface KnowledgeBase {
+  kb_id: string
+  name: string
+  description: string
+  created_at: string
+  updated_at: string
+  doc_count?: number
+  total_chunks?: number
+  conversation_count?: number
+}
+
 export interface KBDoc {
   doc_id: string
+  kb_id: string
   filename: string
   file_type: string
   chunk_count: number
@@ -87,4 +99,21 @@ export interface KBSource {
   page: number
   score: number
   preview: string
+}
+
+export interface KBConversation {
+  conv_id: string
+  kb_id: string
+  title: string
+  created_at: string
+}
+
+export interface KBMessage {
+  msg_id: string
+  conv_id: string
+  role: 'user' | 'assistant'
+  content: string
+  type: 'chat' | 'article'
+  sources: KBSource[]
+  created_at: string
 }

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { NewsItem, Article, PublishRecord, StyleType, KBDoc } from '@/types'
+import type { NewsItem, Article, PublishRecord, StyleType, KBDoc, KnowledgeBase, KBConversation, KBMessage } from '@/types'
 import {
   fetchNews,
   refreshNews,
@@ -16,6 +16,15 @@ import {
   fetchKBDocuments,
   uploadDocument,
   deleteKBDocument,
+  createKnowledgeBase,
+  fetchKnowledgeBases,
+  fetchKnowledgeBase,
+  deleteKnowledgeBase,
+  createKBConversation,
+  fetchKBConversations,
+  deleteKBConversation,
+  fetchKBMessages,
+  saveKBMessage,
 } from '@/api'
 
 export const useNewsStore = defineStore('news', () => {
@@ -177,37 +186,115 @@ export const useNewsStore = defineStore('news', () => {
   const agentDockedRight = ref(false)
   const agentPanelWidth = ref(440)
 
-  // ── Knowledge Base ────────────────────────────────────────────
+  // ── Knowledge Base List ────────────────────────────────────────
 
+  const knowledgeBases = ref<KnowledgeBase[]>([])
+  const kbLoading = ref(false)
+
+  async function loadKnowledgeBases() {
+    kbLoading.value = true
+    try {
+      knowledgeBases.value = await fetchKnowledgeBases()
+    } finally {
+      kbLoading.value = false
+    }
+  }
+
+  async function createKB(name: string, description = ''): Promise<KnowledgeBase> {
+    const kb = await createKnowledgeBase(name, description)
+    await loadKnowledgeBases()
+    return kb
+  }
+
+  async function removeKB(kbId: string) {
+    await deleteKnowledgeBase(kbId)
+    await loadKnowledgeBases()
+  }
+
+  // ── Current KB State ────────────────────────────────────────────
+
+  const currentKB = ref<KnowledgeBase | null>(null)
   const kbDocuments = ref<KBDoc[]>([])
   const kbTotalChunks = ref(0)
   const kbUploading = ref(false)
   const kbDeleting = ref(false)
 
-  async function loadKBDocuments() {
-    const data = await fetchKBDocuments()
+  const kbConversations = ref<KBConversation[]>([])
+  const currentConvId = ref<string>('')
+
+  async function loadCurrentKB(kbId: string) {
+    currentKB.value = await fetchKnowledgeBase(kbId)
+    await loadKBDocuments(kbId)
+    await loadKBConversations(kbId)
+  }
+
+  async function loadKBDocuments(kbId?: string) {
+    const id = kbId || currentKB.value?.kb_id
+    if (!id) return
+    const data = await fetchKBDocuments(id)
     kbDocuments.value = data.documents
     kbTotalChunks.value = data.total_chunks
   }
 
-  async function uploadKBDoc(file: File) {
+  async function uploadKBDoc(file: File, kbId?: string) {
+    const id = kbId || currentKB.value?.kb_id
+    if (!id) return
     kbUploading.value = true
     try {
-      await uploadDocument(file)
-      await loadKBDocuments()
+      await uploadDocument(id, file)
+      await loadKBDocuments(id)
     } finally {
       kbUploading.value = false
     }
   }
 
-  async function deleteKBDoc(docId: string) {
+  async function deleteKBDoc(docId: string, kbId?: string) {
+    const id = kbId || currentKB.value?.kb_id
+    if (!id) return
     kbDeleting.value = true
     try {
-      await deleteKBDocument(docId)
-      await loadKBDocuments()
+      await deleteKBDocument(id, docId)
+      await loadKBDocuments(id)
     } finally {
       kbDeleting.value = false
     }
+  }
+
+  async function loadKBConversations(kbId?: string) {
+    const id = kbId || currentKB.value?.kb_id
+    if (!id) return
+    kbConversations.value = await fetchKBConversations(id)
+  }
+
+  async function createConv(kbId?: string, title = '') {
+    const id = kbId || currentKB.value?.kb_id
+    if (!id) return
+    const conv = await createKBConversation(id, title)
+    await loadKBConversations(id)
+    currentConvId.value = conv.conv_id
+    return conv
+  }
+
+  async function removeConv(convId: string, kbId?: string) {
+    const id = kbId || currentKB.value?.kb_id
+    if (!id) return
+    await deleteKBConversation(id, convId)
+    await loadKBConversations(id)
+    if (currentConvId.value === convId) {
+      currentConvId.value = ''
+    }
+  }
+
+  async function loadConvMessages(convId: string, kbId?: string): Promise<KBMessage[]> {
+    const id = kbId || currentKB.value?.kb_id
+    if (!id) return []
+    return await fetchKBMessages(id, convId)
+  }
+
+  async function saveConvMessage(convId: string, role: string, content: string, type = 'chat', sources: any[] = [], kbId?: string) {
+    const id = kbId || currentKB.value?.kb_id
+    if (!id) return
+    await saveKBMessage(id, convId, role, content, type, sources)
   }
 
   return {
@@ -242,12 +329,26 @@ export const useNewsStore = defineStore('news', () => {
     refreshNewsNowFeeds,
     loadRSSFeeds,
     refreshRSSFeeds,
+    knowledgeBases,
+    kbLoading,
+    loadKnowledgeBases,
+    createKB,
+    removeKB,
+    currentKB,
     kbDocuments,
     kbTotalChunks,
     kbUploading,
     kbDeleting,
+    kbConversations,
+    currentConvId,
+    loadCurrentKB,
     loadKBDocuments,
     uploadKBDoc,
     deleteKBDoc,
+    loadKBConversations,
+    createConv,
+    removeConv,
+    loadConvMessages,
+    saveConvMessage,
   }
 })

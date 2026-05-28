@@ -5,7 +5,7 @@
         <el-button text @click="$router.push('/')" class="back-btn">
           <el-icon><ArrowLeft /></el-icon> 首页
         </el-button>
-        <span class="title">📰 新闻爬取 · AI解读 · 发布</span>
+        <span class="title">📰 智析 · 新闻解读</span>
       </div>
       <div class="header-right">
         <el-tag type="success" effect="dark" size="small">🟢 运行中</el-tag>

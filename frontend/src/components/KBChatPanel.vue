@@ -1,10 +1,5 @@
 <template>
   <div class="kb-chat-panel">
-    <div class="chat-header">
-      <h3>💬 知识库对话</h3>
-      <span class="hint">基于RAG检索，回答引用知识库</span>
-    </div>
-
     <div class="chat-body" ref="messagesRef">
       <div
         v-for="(msg, i) in messages"
@@ -13,10 +8,12 @@
         :class="msg.role"
       >
         <div class="msg-avatar">
-          <div v-if="msg.role === 'assistant'" class="avatar-ai">📚</div>
+          <div v-if="msg.role === 'assistant'" class="avatar-ai">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
           <div v-else class="avatar-user">我</div>
         </div>
-        <div class="msg-bubble-wrap">
+        <div class="msg-content">
           <div v-if="msg.sources && msg.sources.length" class="msg-sources">
             <div
               v-for="(s, si) in msg.sources"
@@ -25,10 +22,10 @@
               :class="{ expanded: isSourceExpanded(i, si) }"
             >
               <div class="source-header" @click="toggleSource(i, si)">
-                <span class="source-file">📎 {{ s.filename }}</span>
+                <span class="source-file">{{ s.filename }}</span>
                 <span v-if="s.page" class="source-page">P.{{ s.page }}</span>
-                <span class="source-score">{{ (s.score * 100).toFixed(1) }}%</span>
-                <span class="source-toggle">{{ isSourceExpanded(i, si) ? '▲' : '▼' }}</span>
+                <span class="source-score">{{ (s.score * 100).toFixed(0) }}%</span>
+                <span class="source-toggle">{{ isSourceExpanded(i, si) ? '收起' : '展开' }}</span>
               </div>
               <div v-if="isSourceExpanded(i, si)" class="source-full">{{ s.text || s.preview }}</div>
               <div v-else class="source-preview">{{ s.preview }}</div>
@@ -39,7 +36,7 @@
             v-if="msg.role === 'assistant' && !msg.streaming && msg.content && msg.type === 'article'"
             class="msg-actions"
           >
-            <button class="msg-action-btn" @click="copyContent(msg.content)">📋 复制</button>
+            <button class="msg-action-btn" @click="copyContent(msg.content)">复制</button>
           </div>
         </div>
       </div>
@@ -51,13 +48,13 @@
           v-model="chatMessage"
           type="textarea"
           :autosize="{ minRows: 1, maxRows: 5 }"
-          placeholder="输入问题，AI将检索知识库回答..."
+          placeholder="输入问题，AI 将检索知识库回答..."
           :disabled="generating"
           @keydown.enter.exact="onInputEnter"
           class="chat-input"
         />
         <button class="send-btn" :disabled="!chatMessage.trim() || generating" @click="sendChat">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
             <path d="M5 12H19M19 12L13 6M19 12L13 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
@@ -71,9 +68,10 @@ import { ref, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useNewsStore } from '@/stores'
 import { kbStreamChat, kbStreamGenerate } from '@/api'
-import type { StyleType } from '@/types'
+import type { StyleType, KBSource, KBMessage } from '@/types'
 import { marked } from 'marked'
 
+const props = defineProps<{ kbId: string }>()
 const store = useNewsStore()
 
 interface ChatMessage {
@@ -179,9 +177,14 @@ async function sendChat() {
   const msgIdx = addAssistantMessage('chat')
   scrollToBottom()
 
+  const convId = store.currentConvId
   const docIds = store.kbDocuments.map(d => d.doc_id)
 
-  kbStreamChat(msg, docIds, {
+  if (convId) {
+    await store.saveConvMessage(convId, 'user', msg, 'chat')
+  }
+
+  kbStreamChat(props.kbId, msg, docIds, {
     onChunk(text) {
       messages.value[msgIdx].content += text
       scrollToBottom()
@@ -196,7 +199,7 @@ async function sendChat() {
     onError(err) {
       pushError(msgIdx, `请求失败：${err}`)
     },
-  })
+  }, 5, convId)
 }
 
 function generateArticle(style: StyleType) {
@@ -217,9 +220,10 @@ function generateArticle(style: StyleType) {
   const msgIdx = addAssistantMessage('article')
   scrollToBottom()
 
+  const convId = store.currentConvId
   const docIds = store.kbDocuments.map(d => d.doc_id)
 
-  kbStreamGenerate(topic, style, {
+  kbStreamGenerate(props.kbId, topic, style, {
     onChunk(text) {
       messages.value[msgIdx].content += text
       scrollToBottom()
@@ -233,7 +237,7 @@ function generateArticle(style: StyleType) {
     onError(err) {
       pushError(msgIdx, `生成失败：${err}`)
     },
-  }, docIds)
+  }, docIds, 5, convId)
 }
 
 function copyContent(text: string) {
@@ -244,7 +248,28 @@ function copyContent(text: string) {
   })
 }
 
-defineExpose({ generateArticle })
+function loadHistory(historyMessages: KBMessage[]) {
+  messages.value = [
+    { role: 'assistant', content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。', type: 'chat' },
+  ]
+  for (const m of historyMessages) {
+    messages.value.push({
+      role: m.role,
+      content: m.content,
+      type: m.type as 'chat' | 'article',
+      sources: m.sources || [],
+    })
+  }
+  scrollToBottom()
+}
+
+function clearMessages() {
+  messages.value = [
+    { role: 'assistant', content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。', type: 'chat' },
+  ]
+}
+
+defineExpose({ generateArticle, loadHistory, clearMessages })
 </script>
 
 <style scoped>
@@ -253,38 +278,25 @@ defineExpose({ generateArticle })
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid #eef2ff;
-  flex-shrink: 0;
-}
-
-.chat-header h3 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.hint {
-  font-size: 11px;
-  color: #a5b4fc;
+  background: #fafbfc;
 }
 
 .chat-body {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
-  background: #f8fafc;
+  padding: 20px 24px;
 }
 
 .msg-row {
   display: flex;
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 20px;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .msg-row.user {
@@ -293,96 +305,99 @@ defineExpose({ generateArticle })
 
 .msg-avatar {
   flex-shrink: 0;
-}
-
-.avatar-ai,
-.avatar-user {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
+  padding-top: 2px;
 }
 
 .avatar-ai {
-  background: #eef2ff;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6366f1;
 }
 
 .avatar-user {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   background: linear-gradient(135deg, #818cf8, #6366f1);
   color: #fff;
   font-weight: 500;
   font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.msg-bubble-wrap {
-  max-width: 85%;
+.msg-content {
+  max-width: 80%;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
-.msg-row.user .msg-bubble-wrap {
+.msg-row.user .msg-content {
   align-items: flex-end;
 }
 
 .msg-sources {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .source-card {
-  background: #eef2ff;
-  border: 1px solid #ddd6fe;
-  border-radius: 6px;
-  padding: 6px 10px;
+  background: #fff;
+  border: 1px solid #eef0f5;
+  border-radius: 8px;
+  padding: 8px 12px;
   font-size: 12px;
+  transition: border-color 0.15s;
 }
 
 .source-card.expanded {
-  border-color: #a5b4fc;
-  background: #eef2ff;
+  border-color: #c7d2fe;
 }
 
 .source-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 3px;
   cursor: pointer;
   user-select: none;
 }
 
 .source-header:hover {
-  opacity: 0.85;
+  opacity: 0.75;
 }
 
 .source-file {
   font-weight: 500;
   color: #6366f1;
+  font-size: 12px;
 }
 
 .source-page {
-  background: #c7d2fe;
-  color: #312e81;
+  background: #eef2ff;
+  color: #6366f1;
   padding: 0 5px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
 }
 
 .source-score {
-  color: #818cf8;
+  color: #94a3b8;
   font-size: 11px;
 }
 
 .source-toggle {
   margin-left: auto;
-  font-size: 9px;
-  color: #818cf8;
+  font-size: 11px;
+  color: #a5b4fc;
 }
 
 .source-preview {
@@ -391,6 +406,7 @@ defineExpose({ generateArticle })
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-top: 4px;
 }
 
 .source-full {
@@ -401,54 +417,71 @@ defineExpose({ generateArticle })
   max-height: 200px;
   overflow-y: auto;
   background: #f8fafc;
-  border-radius: 4px;
-  padding: 6px 8px;
-  margin-top: 4px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 6px;
   font-size: 12px;
-  border: 1px solid #e0e7ff;
+  border: 1px solid #eef0f5;
 }
 
 .msg-bubble {
-  padding: 8px 12px;
-  border-radius: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
   background: #fff;
-  font-size: 13.5px;
-  line-height: 1.65;
+  border: 1px solid #eef0f5;
+  font-size: 14px;
+  line-height: 1.7;
   word-break: break-word;
 }
 
 .msg-row.user .msg-bubble {
   background: linear-gradient(135deg, #818cf8, #6366f1);
   color: #fff;
+  border: none;
+  border-top-left-radius: 4px;
 }
 
-.msg-bubble :deep(p) { margin: 3px 0; }
+.msg-row.assistant .msg-bubble {
+  border-top-right-radius: 4px;
+}
+
+.msg-bubble :deep(p) { margin: 4px 0; }
+.msg-bubble :deep(p:first-child) { margin-top: 0; }
+.msg-bubble :deep(p:last-child) { margin-bottom: 0; }
 .msg-bubble :deep(strong) { font-weight: 600; }
 .msg-bubble :deep(code) {
-  background: #eef2ff;
+  background: rgba(99, 102, 241, 0.08);
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: #4338ca;
 }
-.msg-bubble :deep(pre) {
-  background: #f1f5f9;
-  padding: 8px 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  font-size: 12.5px;
+
+.msg-row.user .msg-bubble :deep(code) {
+  background: rgba(255, 255, 255, 0.15);
+  color: #eef2ff;
 }
+
+.msg-bubble :deep(pre) {
+  background: #f5f6fa;
+  padding: 10px 14px;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 13px;
+  margin: 6px 0;
+}
+
 .msg-bubble :deep(blockquote) {
-  border-left: 2px solid #a5b4fc;
-  padding-left: 10px;
+  border-left: 3px solid #c7d2fe;
+  padding-left: 12px;
   color: #64748b;
-  margin: 3px 0;
+  margin: 6px 0;
 }
 
 .streaming-cursor {
   display: inline;
   animation: blink 0.7s infinite;
-  color: #6366f1;
+  color: #818cf8;
   font-weight: bold;
 }
 
@@ -463,42 +496,43 @@ defineExpose({ generateArticle })
 }
 
 .msg-action-btn {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  border: 1px solid #e0e7ff;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
   background: #fff;
-  color: #6366f1;
+  color: #64748b;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .msg-action-btn:hover {
-  border-color: #818cf8;
+  border-color: #a5b4fc;
+  color: #6366f1;
   background: #eef2ff;
 }
 
 .chat-footer {
   flex-shrink: 0;
-  padding: 10px 12px;
-  border-top: 1px solid #eef2ff;
-  background: #fff;
+  padding: 12px 16px;
+  background: #fafbfc;
+  border-top: 1px solid #eef0f5;
 }
 
 .input-area {
   display: flex;
   align-items: flex-end;
-  gap: 6px;
-  background: #f8fafc;
-  border: 1px solid #e0e7ff;
-  border-radius: 10px;
-  padding: 4px 4px 4px 2px;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 6px 6px 6px 4px;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .input-area:focus-within {
-  border-color: #818cf8;
-  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.12);
+  border-color: #a5b4fc;
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.1);
 }
 
 .chat-input {
@@ -509,7 +543,7 @@ defineExpose({ generateArticle })
   border: none;
   box-shadow: none;
   padding: 6px 10px;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
   resize: none;
   background: transparent;
@@ -521,9 +555,9 @@ defineExpose({ generateArticle })
 }
 
 .send-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   border: none;
   background: linear-gradient(135deg, #818cf8, #6366f1);
   color: #fff;
@@ -537,10 +571,12 @@ defineExpose({ generateArticle })
 
 .send-btn:hover:not(:disabled) {
   box-shadow: 0 2px 10px rgba(99, 102, 241, 0.3);
+  transform: scale(1.05);
 }
 
 .send-btn:disabled {
-  opacity: 0.25;
+  opacity: 0.3;
   cursor: not-allowed;
+  transform: none;
 }
 </style>

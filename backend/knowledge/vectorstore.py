@@ -10,21 +10,24 @@ from typing import Any
 import aiosqlite
 import numpy as np
 
-from database import DB_PATH
+from config import UPLOAD_DIR
 
 logger = logging.getLogger(__name__)
 
-FAISS_INDEX_PATH = Path(__file__).parent.parent / "kb_index.faiss"
-FAISS_IDMAP_PATH = Path(__file__).parent.parent / "kb_id_map.json"
-
 
 class FAISSVectorStore:
-    def __init__(self, dim: int = 1536):
+    def __init__(self, dim: int = 1536, kb_id: str = "default"):
         self.dim = dim
+        self.kb_id = kb_id
         self.index = None
         self.id_map: list[str] = []
         self._loaded = False
         self._vectors: list = []
+
+        kb_dir = Path(UPLOAD_DIR) / kb_id
+        kb_dir.mkdir(parents=True, exist_ok=True)
+        self._index_path = kb_dir / "kb_index.faiss"
+        self._idmap_path = kb_dir / "kb_id_map.json"
 
     def _ensure_loaded(self):
         if self._loaded:
@@ -33,16 +36,16 @@ class FAISSVectorStore:
         try:
             import faiss
 
-            if FAISS_INDEX_PATH.exists() and FAISS_IDMAP_PATH.exists():
-                self.index = faiss.read_index(str(FAISS_INDEX_PATH))
-                self.id_map = json.loads(FAISS_IDMAP_PATH.read_text("utf-8"))
+            if self._index_path.exists() and self._idmap_path.exists():
+                self.index = faiss.read_index(str(self._index_path))
+                self.id_map = json.loads(self._idmap_path.read_text("utf-8"))
                 logger.info(
-                    "Loaded FAISS index: %d vectors", self.index.ntotal
+                    "Loaded FAISS index for KB %s: %d vectors", self.kb_id, self.index.ntotal
                 )
             else:
                 self.index = faiss.IndexFlatIP(self.dim)
                 self.id_map = []
-                logger.info("Created empty FAISS index (dim=%d)", self.dim)
+                logger.info("Created empty FAISS index for KB %s (dim=%d)", self.kb_id, self.dim)
         except ImportError:
             logger.warning("faiss not installed, using brute-force search")
             self.index = None
@@ -53,8 +56,10 @@ class FAISSVectorStore:
         if self.index is not None:
             import faiss
 
-            faiss.write_index(self.index, str(FAISS_INDEX_PATH))
-        FAISS_IDMAP_PATH.write_text(
+            self._index_path.parent.mkdir(parents=True, exist_ok=True)
+            faiss.write_index(self.index, str(self._index_path))
+        self._idmap_path.parent.mkdir(parents=True, exist_ok=True)
+        self._idmap_path.write_text(
             json.dumps(self.id_map, ensure_ascii=False), encoding="utf-8"
         )
 
@@ -139,3 +144,24 @@ class FAISSVectorStore:
         if self.index is not None:
             return self.index.ntotal
         return len(self.id_map)
+
+
+class VectorStoreManager:
+    def __init__(self, dim: int = 1536):
+        self.dim = dim
+        self._stores: dict[str, FAISSVectorStore] = {}
+
+    def get(self, kb_id: str) -> FAISSVectorStore:
+        if kb_id not in self._stores:
+            self._stores[kb_id] = FAISSVectorStore(dim=self.dim, kb_id=kb_id)
+        return self._stores[kb_id]
+
+    def remove(self, kb_id: str):
+        if kb_id in self._stores:
+            del self._stores[kb_id]
+        kb_dir = Path(UPLOAD_DIR) / kb_id
+        if kb_dir.exists():
+            for f in kb_dir.glob("kb_index.faiss"):
+                f.unlink(missing_ok=True)
+            for f in kb_dir.glob("kb_id_map.json"):
+                f.unlink(missing_ok=True)

@@ -52,6 +52,7 @@ async def init_db() -> None:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS kb_documents (
                 doc_id TEXT PRIMARY KEY,
+                kb_id TEXT NOT NULL DEFAULT 'default',
                 filename TEXT NOT NULL,
                 file_type TEXT,
                 chunk_count INTEGER DEFAULT 0,
@@ -74,6 +75,40 @@ async def init_db() -> None:
             await db.execute("ALTER TABLE kb_chunks ADD COLUMN page INTEGER DEFAULT 0")
         except Exception:
             pass
+        try:
+            await db.execute("ALTER TABLE kb_documents ADD COLUMN kb_id TEXT NOT NULL DEFAULT 'default'")
+        except Exception:
+            pass
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS knowledge_bases (
+                kb_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS kb_conversations (
+                conv_id TEXT PRIMARY KEY,
+                kb_id TEXT NOT NULL,
+                title TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (kb_id) REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS kb_messages (
+                msg_id TEXT PRIMARY KEY,
+                conv_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT DEFAULT '',
+                type TEXT DEFAULT 'chat',
+                sources TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (conv_id) REFERENCES kb_conversations(conv_id) ON DELETE CASCADE
+            )
+        """)
         await db.commit()
     logger.info("Database initialized: %s", DB_PATH)
 
@@ -327,3 +362,191 @@ async def load_kb_chunk_texts(chunk_ids: list[str]) -> dict[str, dict[str, Any]]
                     "filename": row["filename"],
                 }
         return result
+
+
+# ── Knowledge Bases ────────────────────────────────────────────
+
+async def create_kb(kb: dict[str, Any]) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO knowledge_bases (kb_id, name, description) VALUES (?, ?, ?)",
+            (kb["kb_id"], kb["name"], kb.get("description", "")),
+        )
+        await db.commit()
+
+
+async def load_kbs() -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM knowledge_bases ORDER BY created_at DESC")
+        rows = await cursor.fetchall()
+        return [
+            {
+                "kb_id": row["kb_id"],
+                "name": row["name"],
+                "description": row["description"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+
+async def load_kb(kb_id: str) -> dict[str, Any] | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM knowledge_bases WHERE kb_id = ?", (kb_id,))
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "kb_id": row["kb_id"],
+            "name": row["name"],
+            "description": row["description"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+
+async def delete_kb(kb_id: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM kb_messages WHERE conv_id IN (SELECT conv_id FROM kb_conversations WHERE kb_id = ?)", (kb_id,))
+        await db.execute("DELETE FROM kb_conversations WHERE kb_id = ?", (kb_id,))
+        chunk_ids = []
+        cursor = await db.execute("SELECT chunk_id FROM kb_chunks WHERE doc_id IN (SELECT doc_id FROM kb_documents WHERE kb_id = ?)", (kb_id,))
+        rows = await cursor.fetchall()
+        chunk_ids = [row["chunk_id"] for row in rows]
+        await db.execute("DELETE FROM kb_chunks WHERE doc_id IN (SELECT doc_id FROM kb_documents WHERE kb_id = ?)", (kb_id,))
+        await db.execute("DELETE FROM kb_documents WHERE kb_id = ?", (kb_id,))
+        await db.execute("DELETE FROM knowledge_bases WHERE kb_id = ?", (kb_id,))
+        await db.commit()
+    return chunk_ids
+
+
+async def save_kb_doc(doc: dict[str, Any]) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            INSERT OR REPLACE INTO kb_documents
+                (doc_id, kb_id, filename, file_type, chunk_count, file_size, upload_time, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                doc["doc_id"],
+                doc.get("kb_id", "default"),
+                doc["filename"],
+                doc.get("file_type", ""),
+                doc.get("chunk_count", 0),
+                doc.get("file_size", 0),
+                doc.get("upload_time", ""),
+                doc.get("status", "ready"),
+            ),
+        )
+        await db.commit()
+
+
+async def load_kb_docs(kb_id: str) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM kb_documents WHERE kb_id = ? ORDER BY upload_time DESC", (kb_id,))
+        rows = await cursor.fetchall()
+        return [
+            {
+                "doc_id": row["doc_id"],
+                "kb_id": row["kb_id"],
+                "filename": row["filename"],
+                "file_type": row["file_type"],
+                "chunk_count": row["chunk_count"],
+                "file_size": row["file_size"],
+                "upload_time": row["upload_time"],
+                "status": row["status"],
+            }
+            for row in rows
+        ]
+
+
+async def delete_kb_doc(doc_id: str) -> list[str]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT chunk_id FROM kb_chunks WHERE doc_id = ?", (doc_id,)
+        )
+        rows = await cursor.fetchall()
+        chunk_ids = [row["chunk_id"] for row in rows]
+        await db.execute("DELETE FROM kb_chunks WHERE doc_id = ?", (doc_id,))
+        await db.execute("DELETE FROM kb_documents WHERE doc_id = ?", (doc_id,))
+        await db.commit()
+    return chunk_ids
+
+
+# ── KB Conversations ──────────────────────────────────────────
+
+async def create_conversation(conv: dict[str, Any]) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO kb_conversations (conv_id, kb_id, title) VALUES (?, ?, ?)",
+            (conv["conv_id"], conv["kb_id"], conv.get("title", "")),
+        )
+        await db.execute(
+            "UPDATE knowledge_bases SET updated_at = datetime('now') WHERE kb_id = ?",
+            (conv["kb_id"],),
+        )
+        await db.commit()
+
+
+async def load_conversations(kb_id: str) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM kb_conversations WHERE kb_id = ? ORDER BY created_at DESC", (kb_id,))
+        rows = await cursor.fetchall()
+        return [
+            {
+                "conv_id": row["conv_id"],
+                "kb_id": row["kb_id"],
+                "title": row["title"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+
+async def delete_conversation(conv_id: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM kb_messages WHERE conv_id = ?", (conv_id,))
+        await db.execute("DELETE FROM kb_conversations WHERE conv_id = ?", (conv_id,))
+        await db.commit()
+
+
+async def save_message(msg: dict[str, Any]) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO kb_messages (msg_id, conv_id, role, content, type, sources) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                msg["msg_id"],
+                msg["conv_id"],
+                msg["role"],
+                msg.get("content", ""),
+                msg.get("type", "chat"),
+                msg.get("sources", ""),
+            ),
+        )
+        await db.commit()
+
+
+async def load_messages(conv_id: str) -> list[dict[str, Any]]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM kb_messages WHERE conv_id = ? ORDER BY created_at ASC", (conv_id,))
+        rows = await cursor.fetchall()
+        return [
+            {
+                "msg_id": row["msg_id"],
+                "conv_id": row["conv_id"],
+                "role": row["role"],
+                "content": row["content"],
+                "type": row["type"],
+                "sources": row["sources"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]

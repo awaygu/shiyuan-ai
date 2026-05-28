@@ -14,9 +14,10 @@ const router = createRouter({
       component: () => import('@/views/NewsView.vue'),
     },
     {
-      path: '/kb',
-      name: 'kb',
+      path: '/kb/:kbId',
+      name: 'kb-detail',
       component: () => import('@/views/KnowledgeBaseView.vue'),
+      props: true,
     },
   ],
 })

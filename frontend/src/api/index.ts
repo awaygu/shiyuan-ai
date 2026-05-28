@@ -1,7 +1,7 @@
 /** Backend API request wrappers. */
 
 import axios from 'axios'
-import type { NewsItem, Article, PublishRecord, StyleType, KBDoc, KBSearchResult } from '@/types'
+import type { NewsItem, Article, PublishRecord, StyleType, KBDoc, KBSearchResult, KnowledgeBase, KBConversation, KBMessage } from '@/types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -359,11 +359,30 @@ export async function executeAction(action: string, params?: Record<string, any>
 
 // ── Knowledge Base ────────────────────────────────────────────
 
-/** Upload a document to the knowledge base. */
-export async function uploadDocument(file: File): Promise<{ doc_id: string; filename: string; chunk_count: number; file_size: number }> {
+export async function createKnowledgeBase(name: string, description = ''): Promise<KnowledgeBase> {
+  const res = await api.post('/knowledge/bases', { name, description })
+  return res.data
+}
+
+export async function fetchKnowledgeBases(): Promise<KnowledgeBase[]> {
+  const res = await api.get('/knowledge/bases')
+  return res.data.knowledge_bases
+}
+
+export async function fetchKnowledgeBase(kbId: string): Promise<KnowledgeBase> {
+  const res = await api.get(`/knowledge/bases/${encodeURIComponent(kbId)}`)
+  return res.data
+}
+
+export async function deleteKnowledgeBase(kbId: string): Promise<void> {
+  await api.delete(`/knowledge/bases/${encodeURIComponent(kbId)}`)
+}
+
+/** Upload a document to a knowledge base. */
+export async function uploadDocument(kbId: string, file: File): Promise<{ doc_id: string; filename: string; chunk_count: number; file_size: number }> {
   const formData = new FormData()
   formData.append('file', file)
-  const res = await api.post('/knowledge/upload', formData, {
+  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/upload`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,
   })
@@ -371,29 +390,55 @@ export async function uploadDocument(file: File): Promise<{ doc_id: string; file
 }
 
 /** Fetch all knowledge base documents. */
-export async function fetchKBDocuments(): Promise<{ documents: KBDoc[]; total_chunks: number }> {
-  const res = await api.get('/knowledge/documents', { timeout: 60000 })
+export async function fetchKBDocuments(kbId: string): Promise<{ documents: KBDoc[]; total_chunks: number }> {
+  const res = await api.get(`/knowledge/bases/${encodeURIComponent(kbId)}/documents`, { timeout: 60000 })
   return res.data
 }
 
 /** Delete a knowledge base document. */
-export async function deleteKBDocument(docId: string): Promise<{ deleted: boolean; doc_id: string; chunks_removed: number }> {
-  const res = await api.delete(`/knowledge/documents/${encodeURIComponent(docId)}`, { timeout: 60000 })
+export async function deleteKBDocument(kbId: string, docId: string): Promise<{ deleted: boolean; doc_id: string; chunks_removed: number }> {
+  const res = await api.delete(`/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`, { timeout: 60000 })
   return res.data
 }
 
 /** Semantic search in knowledge base. */
-export async function searchKnowledgeBase(query: string, topK = 5): Promise<{ results: KBSearchResult[]; total: number }> {
-  const res = await api.post('/knowledge/search', { query, top_k: topK }, { timeout: 60000 })
+export async function searchKnowledgeBase(kbId: string, query: string, topK = 5): Promise<{ results: KBSearchResult[]; total: number }> {
+  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/search`, { query, top_k: topK }, { timeout: 60000 })
   return res.data
 }
 
 /** Stream KB RAG chat. */
-export function kbStreamChat(message: string, docIds: string[], callbacks: AgentStreamCallbacks, topK = 5) {
-  return consumeAgentSSE('/api/knowledge/chat/stream', { message, doc_ids: docIds, top_k: topK }, callbacks)
+export function kbStreamChat(kbId: string, message: string, docIds: string[], callbacks: AgentStreamCallbacks, topK = 5, convId = '') {
+  return consumeAgentSSE(`/api/knowledge/bases/${encodeURIComponent(kbId)}/chat/stream`, { message, doc_ids: docIds, top_k: topK, conv_id: convId }, callbacks)
 }
 
 /** Stream KB RAG article generation. */
-export function kbStreamGenerate(message: string, style: StyleType, callbacks: AgentStreamCallbacks, docIds: string[] = [], topK = 5) {
-  return consumeAgentSSE('/api/knowledge/generate/stream', { message, style, doc_ids: docIds, top_k: topK }, callbacks)
+export function kbStreamGenerate(kbId: string, message: string, style: StyleType, callbacks: AgentStreamCallbacks, docIds: string[] = [], topK = 5, convId = '') {
+  return consumeAgentSSE(`/api/knowledge/bases/${encodeURIComponent(kbId)}/generate/stream`, { message, style, doc_ids: docIds, top_k: topK, conv_id: convId }, callbacks)
+}
+
+// ── KB Conversations ──────────────────────────────────────────
+
+export async function createKBConversation(kbId: string, title = ''): Promise<KBConversation> {
+  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/conversations`, { title })
+  return res.data
+}
+
+export async function fetchKBConversations(kbId: string): Promise<KBConversation[]> {
+  const res = await api.get(`/knowledge/bases/${encodeURIComponent(kbId)}/conversations`)
+  return res.data.conversations
+}
+
+export async function deleteKBConversation(kbId: string, convId: string): Promise<void> {
+  await api.delete(`/knowledge/bases/${encodeURIComponent(kbId)}/conversations/${encodeURIComponent(convId)}`)
+}
+
+export async function fetchKBMessages(kbId: string, convId: string): Promise<KBMessage[]> {
+  const res = await api.get(`/knowledge/bases/${encodeURIComponent(kbId)}/conversations/${encodeURIComponent(convId)}/messages`)
+  return res.data.messages
+}
+
+export async function saveKBMessage(kbId: string, convId: string, role: string, content: string, type = 'chat', sources: any[] = []): Promise<{ msg_id: string }> {
+  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/conversations/${encodeURIComponent(convId)}/messages`, { role, content, type, sources })
+  return res.data
 }

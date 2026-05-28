@@ -1,110 +1,102 @@
-# 📰 新闻爬取 · AI解读 · 发布系统
+# 智析 · AI解读与知识库
 
-一站式新闻采集、AI多风格解读、多平台发布的现代化全栈应用。
+一站式新闻AI解读、多知识库RAG检索、多风格内容生成的现代化全栈应用。
 
 ---
 
 ## 🛠️ 技术栈
 
-| 分类 | 技术 | 版本 | 说明 |
-|------|------|------|------|
-| **后端** | FastAPI | ^0.104 | 高性能 Python Web 框架 |
-| **前端** | Vue 3 | ^3.4 | 渐进式 JavaScript 框架 |
-| **前端** | TypeScript | ^5.3 | 类型安全 |
-| **前端** | Vite | ^5.0 | 快速构建工具 |
-| **前端** | Element Plus | ^2.4 | UI 组件库 |
-| **前端** | Pinia | ^2.1 | 状态管理 |
-| **数据库** | SQLite | - | 轻量级嵌入式数据库 |
-| **AI** | LangChain | ^0.1 | LLM 应用框架 |
+| 分类 | 技术 | 说明 |
+|------|------|------|
+| **后端** | FastAPI | 高性能 Python Web 框架 |
+| **前端** | Vue 3 + TypeScript | 渐进式框架 + 类型安全 |
+| **构建** | Vite | 快速构建工具 |
+| **UI** | Element Plus | Vue 3 组件库 |
+| **状态** | Pinia | Vue 3 状态管理 |
+| **路由** | Vue Router | 前端路由 |
+| **数据库** | SQLite + aiosqlite | 异步轻量级嵌入式数据库 |
+| **AI** | LangChain + OpenAI API | LLM 应用框架 |
+| **向量** | FAISS + DashScope | 语义检索 + 文本嵌入 |
 
 ---
 
 ## 🏗️ 项目结构
 
 ```
-news-interpretation/
+zhixi/
 ├── backend/                    # FastAPI 后端服务
 │   ├── app.py                 # 主入口 + 应用配置
 │   ├── config.py              # 全局配置管理
-│   ├── database.py            # SQLite 数据库操作
+│   ├── database.py            # SQLite 数据库操作（8张表）
 │   ├── prompts.py             # AI 提示词管理
-│   ├── prompts.yaml           # 提示词模板配置
 │   ├── keywords.txt           # 关键词过滤列表
 │   ├── requirements.txt       # Python 依赖
-│   ├── .env                   # 环境变量（需自行创建）
+│   ├── uploads/               # 文件上传目录（按知识库隔离）
 │   ├── agents/                # AI 解读模块
-│   │   ├── __init__.py
 │   │   ├── interpreter.py     # 新闻解读器
 │   │   └── style_manager.py   # 风格管理器
 │   ├── crawlers/              # 新闻爬虫模块
-│   │   ├── __init__.py
 │   │   ├── base.py            # 爬虫基类
-│   │   ├── cls_hot.py         # 财联社热门
-│   │   ├── cls_telegraph.py   # 财联社电报
-│   │   ├── wallstreet.py      # 华尔街见闻
-│   │   ├── cankao.py          # 参考消息
-│   │   ├── pengpai.py         # 澎湃新闻
-│   │   ├── toutiao.py         # 今日头条
-│   │   ├── weibo.py           # 微博热搜
-│   │   ├── douyin.py          # 抖音热点
-│   │   ├── newsnow.py         # NewsNow RSS
-│   │   ├── rss.py             # 通用 RSS 爬虫
+│   │   ├── newsnow.py         # NewsNow 统一爬虫（9平台）
+│   │   ├── rss.py             # RSS/Atom 爬虫
 │   │   └── filter.py          # 内容过滤器
+│   ├── knowledge/             # 知识库模块
+│   │   ├── loader.py          # 文档解析（PDF/DOCX/TXT/MD）
+│   │   ├── chunker.py         # 文本分块
+│   │   ├── embeddings.py      # DashScope 文本嵌入
+│   │   └── vectorstore.py     # FAISS 向量存储（多库隔离）
 │   ├── publishers/            # 发布器模块
-│   │   ├── __init__.py
-│   │   ├── base.py            # 发布器基类
 │   │   ├── xiaohongshu.py     # 小红书发布器
 │   │   ├── wechat_mp.py       # 微信公众号发布器
 │   │   └── douyin_pub.py      # 抖音发布器
 │   └── routers/               # API 路由
-│       ├── __init__.py
-│       ├── deps.py            # 依赖注入
-│       ├── news.py            # 新闻相关接口
+│       ├── deps.py            # 依赖注入 + 共享状态
+│       ├── news.py            # 新闻接口
 │       ├── interpret.py       # AI 解读接口
+│       ├── knowledge.py       # 知识库 CRUD + RAG 接口
+│       ├── agent.py           # 智能体（8工具函数调用）
 │       ├── publish.py         # 发布接口
 │       ├── schedule.py        # 定时任务接口
-│       ├── keywords.py        # 关键词管理接口
-│       └── prompts.py         # 提示词管理接口
+│       ├── keywords.py        # 关键词管理
+│       └── prompts.py         # 提示词管理
 ├── frontend/                   # Vue 3 前端应用
 │   ├── src/
-│   │   ├── App.vue            # 根组件（三列布局）
+│   │   ├── App.vue            # 根组件
 │   │   ├── main.ts            # 入口文件
-│   │   ├── api/               # API 请求封装
-│   │   │   └── index.ts
-│   │   ├── components/        # 组件
-│   │   │   ├── NewsList.vue   # 新闻列表
-│   │   │   ├── NewsDetail.vue # 新闻详情
-│   │   │   ├── ChatPanel.vue  # 聊天解读面板
-│   │   │   ├── GeneratePanel.vue # 文章生成面板
-│   │   │   ├── PublishPanel.vue # 发布面板
-│   │   │   └── RightPanel.vue # 右侧工具栏
-│   │   ├── stores/            # Pinia 状态管理
-│   │   │   └── index.ts
-│   │   └── types/             # TypeScript 类型定义
-│   │       └── index.ts
-│   ├── index.html             # HTML 模板
-│   ├── package.json           # Node 依赖
-│   ├── vite.config.ts         # Vite 配置
-│   ├── tsconfig.json          # TypeScript 配置
-│   └── dist/                  # 构建产物（npm run build 生成）
-├── .gitignore                # Git 忽略配置
-└── README.md                  # 项目说明文档
+│   │   ├── api/index.ts       # API 请求 + SSE 流式消费
+│   │   ├── router/index.ts    # 路由配置
+│   │   ├── stores/index.ts    # Pinia 状态管理
+│   │   ├── types/index.ts     # TypeScript 类型定义
+│   │   ├── views/             # 页面
+│   │   │   ├── HomeView.vue           # 首页（知识库列表）
+│   │   │   ├── NewsView.vue           # 新闻解读
+│   │   │   └── KnowledgeBaseView.vue  # 知识库详情
+│   │   └── components/        # 组件
+│   │       ├── NewsList.vue           # 新闻列表
+│   │       ├── NewsDetail.vue         # 新闻详情
+│   │       ├── FloatingAgent.vue      # 智能体浮窗
+│   │       ├── KBFilePanel.vue        # 知识库文件管理
+│   │       ├── KBChatPanel.vue        # 知识库 RAG 对话
+│   │       └── KBActionPanel.vue      # 智能生成面板
+│   └── package.json
+└── README.md
 ```
 
 ---
 
 ## ✨ 核心功能
 
-| 功能 | 说明 | 状态 |
-|------|------|------|
-| **多源新闻爬取** | 支持 10+ 新闻来源，自动去重和过滤 | ✅ |
-| **AI 智能解读** | 基于 LLM 的新闻深度分析 | ✅ |
-| **多风格输出** | 小红书/公众号/抖音三种风格 | ✅ |
-| **聊天式解读** | 基于新闻上下文的对话交互 | ✅ |
-| **文章生成** | 多条新闻合成完整解读文章 | ✅ |
-| **多平台发布** | 模拟发布到小红书/公众号/抖音 | ✅ |
-| **定时任务** | 自动定时爬取和生成内容 | ✅ |
-| **数据持久化** | SQLite 本地存储，重启不丢失 | ✅ |
+| 功能 | 说明 |
+|------|------|
+| **新闻AI解读** | 多源新闻爬取 + LLM 深度解读 + 智能体对话 |
+| **多知识库管理** | 创建/删除知识库，每个知识库独立向量索引 |
+| **文档上传与解析** | 支持 PDF / DOCX / TXT / MD，自动分块嵌入 |
+| **RAG 语义检索** | DashScope 嵌入 + FAISS 向量检索，引用来源 |
+| **多风格文章生成** | 小红书 / 公众号 / 抖音三种风格 |
+| **会话持久化** | 每个知识库独立会话，对话记录永久保存 |
+| **智能体** | 8工具函数调用，自动刷新/搜索/对比/简报 |
+| **多平台发布** | 模拟发布到小红书/公众号/抖音 |
+| **定时爬取** | 自动定时刷新新闻数据 |
 
 ---
 
@@ -114,7 +106,6 @@ news-interpretation/
 
 - **Python**: >= 3.10
 - **Node.js**: >= 18.0
-- **npm**: >= 9.0
 
 ### 1. 克隆项目
 
@@ -138,18 +129,15 @@ source venv/bin/activate
 # 安装依赖
 pip install -r requirements.txt
 
-# 创建环境变量文件（可选）
-# cp .env.example .env
-# 编辑 .env 配置 LLM 等参数
+# 配置环境变量
+cp .env.example .env
+# 编辑 .env 配置 LLM_API_KEY、DASHSCOPE_API_KEY 等
 
 # 启动服务
 python app.py
 ```
 
-后端默认运行在 **http://localhost:8000**
-
-- Swagger 文档: http://localhost:8000/docs
-- Redoc 文档: http://localhost:8000/redoc
+后端运行在 **http://localhost:8000**，API 文档: http://localhost:8000/docs
 
 ### 3. 前端启动
 
@@ -163,15 +151,7 @@ npm install
 npm run dev
 ```
 
-前端默认运行在 **http://localhost:5173**
-
-### 4. 生产构建
-
-```bash
-cd frontend
-npm run build
-# 构建产物输出到 frontend/dist/
-```
+前端运行在 **http://localhost:5173**
 
 ---
 
@@ -185,209 +165,118 @@ LLM_API_KEY=your-api-key
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4o-mini
 
+# DashScope 嵌入（知识库必需）
+DASHSCOPE_API_KEY=your-dashscope-key
+
 # 服务器配置
 HOST=0.0.0.0
 PORT=8000
-DEBUG=false
 
 # 爬虫配置
 NEWSNOW_CRAWL_INTERVAL=3600
 RSS_CRAWL_INTERVAL=1800
-
-# 定时任务
 SCHEDULE_ENABLED=true
 ```
-
-### 配置优先级
-
-1. 环境变量（`.env` 文件）
-2. `config.py` 中的默认值
 
 ---
 
 ## 🔌 API 接口
 
-### 新闻相关
+### 知识库管理
 
-| 方法 | 路径 | 说明 | 参数 |
-|------|------|------|------|
-| GET | `/api/news` | 获取新闻列表 | `source`（可选）, `limit`（可选） |
-| GET | `/api/news/{id}` | 获取单条新闻 | `id`（必填） |
-| GET | `/api/sources` | 获取支持的来源列表 | - |
-| POST | `/api/news/crawl` | 手动触发爬取 | `source`（可选） |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/knowledge/bases` | 创建知识库 |
+| GET | `/api/knowledge/bases` | 获取知识库列表 |
+| GET | `/api/knowledge/bases/{kb_id}` | 获取知识库详情 |
+| DELETE | `/api/knowledge/bases/{kb_id}` | 删除知识库 |
 
-### AI 解读
+### 知识库文档
 
-| 方法 | 路径 | 说明 | 参数 |
-|------|------|------|------|
-| POST | `/api/interpret` | AI 解读单条新闻 | `news_id`, `style` |
-| POST | `/api/chat` | 聊天式解读 | `news_id`, `question` |
-| POST | `/api/generate_article` | 生成完整文章 | `news_ids`, `style`, `title`（可选） |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/knowledge/bases/{kb_id}/upload` | 上传文档 |
+| GET | `/api/knowledge/bases/{kb_id}/documents` | 获取文档列表 |
+| DELETE | `/api/knowledge/bases/{kb_id}/documents/{doc_id}` | 删除文档 |
+| POST | `/api/knowledge/bases/{kb_id}/search` | 语义检索 |
 
-### 发布相关
+### 知识库对话
 
-| 方法 | 路径 | 说明 | 参数 |
-|------|------|------|------|
-| POST | `/api/publish` | 发布文章 | `article_id`, `platform` |
-| GET | `/api/articles` | 获取已生成的文章 | - |
-| GET | `/api/publish_log` | 获取发布记录 | `article_id`（可选） |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/knowledge/bases/{kb_id}/conversations` | 创建会话 |
+| GET | `/api/knowledge/bases/{kb_id}/conversations` | 获取会话列表 |
+| DELETE | `/api/knowledge/bases/{kb_id}/conversations/{conv_id}` | 删除会话 |
+| GET | `/api/knowledge/bases/{kb_id}/conversations/{conv_id}/messages` | 获取会话消息 |
+| POST | `/api/knowledge/bases/{kb_id}/chat/stream` | RAG 对话（SSE 流式） |
+| POST | `/api/knowledge/bases/{kb_id}/generate/stream` | RAG 文章生成（SSE 流式） |
 
-### 管理接口
+### 新闻与解读
 
-| 方法 | 路径 | 说明 | 参数 |
-|------|------|------|------|
-| GET | `/api/keywords` | 获取关键词列表 | - |
-| POST | `/api/keywords` | 添加关键词 | `word`, `type` |
-| DELETE | `/api/keywords/{id}` | 删除关键词 | `id` |
-| GET | `/api/prompts` | 获取提示词列表 | - |
-| PUT | `/api/prompts/{style}` | 更新提示词 | `style`, `content` |
-| GET | `/api/schedule/status` | 获取定时任务状态 | - |
-| POST | `/api/schedule/toggle` | 开启/关闭定时任务 | `enabled` |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/news` | 获取新闻列表 |
+| POST | `/api/news/refresh` | 刷新全部新闻 |
+| POST | `/api/interpret/stream` | AI 解读（SSE） |
+| POST | `/api/chat/stream` | 对话式解读（SSE） |
+| POST | `/api/generate_article/stream` | 文章生成（SSE） |
+| POST | `/api/agent/chat/stream` | 智能体对话（SSE） |
 
 ---
 
 ## 🎨 支持风格
 
-| 风格 | 标识符 | 特点 | 适用场景 |
-|------|--------|------|----------|
-| 小红书风 | `xiaohongshu` | ✨ emoji 丰富、种草语气、话题标签 | 小红书笔记 |
-| 公众号风 | `wechat_mp` | 📰 深度长文、标题党、专业分析 | 微信公众号 |
-| 抖音风 | `douyin` | 🎬 短平快、抓眼球、口播稿 | 抖音短视频 |
+| 风格 | 标识符 | 特点 |
+|------|--------|------|
+| 小红书 | `xiaohongshu` | emoji 丰富、口语化、话题标签 |
+| 公众号 | `wechat_mp` | 深度长文、专业分析 |
+| 抖音 | `douyin` | 短平快、口播稿 |
 
 ---
 
 ## 📁 新闻来源
 
-| 来源 | 标识符 | 说明 |
-|------|--------|------|
-| 财联社热门 | `cls_hot` | 财经新闻 |
-| 财联社电报 | `cls_telegraph` | 即时资讯 |
-| 华尔街见闻 | `wallstreet` | 国际财经 |
-| 参考消息 | `cankao` | 国际新闻 |
-| 澎湃新闻 | `pengpai` | 综合新闻 |
-| 今日头条 | `toutiao` | 综合资讯 |
-| 微博热搜 | `weibo` | 热点话题 |
-| 抖音热点 | `douyin` | 短视频热点 |
+| 来源 | 标识符 |
+|------|--------|
+| 财联社热门 | `cls-hot` |
+| 财联社电报 | `cls-telegraph` |
+| 华尔街见闻 | `wallstreetcn-hot` |
+| 参考消息 | `cankaoxiaoxi` |
+| 澎湃新闻 | `thepaper` |
+| 今日头条 | `toutiao` |
+| 雪球 | `xueqiu` |
+| 微博 | `weibo` |
+| 抖音 | `douyin` |
+| Hacker News | `hacker-news` |
+| 阮一峰的网络日志 | `ruanyifeng` |
 
 ---
 
-## 📦 部署方案
+## 🗄️ 数据库设计
 
-### 方案一：Nginx + Uvicorn（推荐）
-
-**后端配置（gunicorn + uvicorn）**
-
-```bash
-# 安装 gunicorn
-pip install gunicorn
-
-# 启动生产服务
-gunicorn app:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
-```
-
-**Nginx 配置**
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    # 前端静态文件
-    location / {
-        root /path/to/frontend/dist;
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API 反向代理
-    location /api {
-        proxy_pass http://localhost:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-
-    # WebSocket 支持（用于流式响应）
-    location /api/chat {
-        proxy_pass http://localhost:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-```
-
-### 方案二：Docker 部署
-
-创建 `docker-compose.yml`：
-
-```yaml
-version: '3.8'
-services:
-  backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    ports:
-      - "8000:8000"
-    environment:
-      - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_BASE_URL=${LLM_BASE_URL}
-    volumes:
-      - ./backend:/app
-      - db-data:/app/data
-
-  frontend:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./frontend/dist:/usr/share/nginx/html
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf
-    depends_on:
-      - backend
-
-volumes:
-  db-data:
-```
-
----
-
-## 🐛 常见问题
-
-### Q1: 前端无法连接后端？
-
-确保后端服务已启动，并检查 `vite.config.ts` 中的代理配置：
-
-```typescript
-proxy: {
-  '/api': {
-    target: 'http://localhost:8000',
-    changeOrigin: true
-  }
-}
-```
-
-### Q2: AI 解读返回模拟数据？
-
-默认使用模拟模式，如需接入真实 LLM：
-
-1. 在 `backend/.env` 配置 `LLM_API_KEY` 和 `LLM_BASE_URL`
-2. 修改 `app.py` 中 `NewsInterpreter(mock=True)` 为 `NewsInterpreter(mock=False)`
-
-### Q3: 爬虫无法获取真实数据？
-
-部分网站有反爬机制，爬虫会自动 fallback 到模拟数据。可尝试：
-- 设置合理的请求间隔
-- 添加 User-Agent 伪装
-- 使用代理 IP
+| 表名 | 说明 |
+|------|------|
+| `news` | 新闻数据 |
+| `articles` | 生成的文章 |
+| `publish_log` | 发布记录 |
+| `knowledge_bases` | 知识库 |
+| `kb_documents` | 知识库文档（关联 kb_id） |
+| `kb_chunks` | 文档分块 |
+| `kb_conversations` | 知识库会话 |
+| `kb_messages` | 会话消息 |
 
 ---
 
 ## 📝 更新日志
 
-### v1.0.0 (2024-01-xx)
-- 初始版本
-- 支持多源新闻爬取
+### v2.0.0
+- 多知识库支持：独立创建、独立向量索引、独立会话
+- RAG 对话：语义检索 + 来源引用
+- 会话持久化：对话记录永久保存
+- 智能体：8工具函数调用
+
+### v1.0.0
+- 多源新闻爬取
 - AI 多风格解读
 - 多平台发布模拟
 - SQLite 数据持久化
@@ -397,7 +286,3 @@ proxy: {
 ## 📄 许可证
 
 MIT License
-
----
-
-*由 AI 驱动开发 🦾*

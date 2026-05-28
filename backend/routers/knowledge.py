@@ -1,10 +1,9 @@
-"""Knowledge base API routes: upload, list, delete, search, RAG chat, RAG generate."""
+"""Knowledge base API routes: KB CRUD, upload, list, delete, search, RAG chat, RAG generate, conversations."""
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -15,15 +14,24 @@ from pydantic import BaseModel, Field
 
 from config import UPLOAD_DIR, LLM_API_KEY, LLM_BASE_URL
 from database import (
+    create_kb,
+    load_kbs,
+    load_kb,
+    delete_kb as db_delete_kb,
     save_kb_doc,
     load_kb_docs,
     delete_kb_doc,
     save_kb_chunks,
     load_kb_chunk_texts,
+    create_conversation,
+    load_conversations,
+    delete_conversation,
+    save_message,
+    load_messages,
 )
 from knowledge.embeddings import DashScopeEmbedding
-from knowledge.chunker import TextChunker, Chunk
-from knowledge.vectorstore import FAISSVectorStore
+from knowledge.chunker import TextChunker
+from knowledge.vectorstore import VectorStoreManager
 from knowledge.loader import DocumentLoader
 
 logger = logging.getLogger(__name__)
@@ -38,7 +46,7 @@ SSE_HEADERS = {
 embedding_client = DashScopeEmbedding()
 chunker = TextChunker()
 loader = DocumentLoader()
-vector_store = FAISSVectorStore()
+vs_manager = VectorStoreManager()
 
 
 KB_RAG_SYSTEM_PROMPT = """\
@@ -61,10 +69,73 @@ KB_GENERATE_SYSTEM_PROMPT = """\
 """
 
 
+# ── KB CRUD ────────────────────────────────────────────────────
+
+class CreateKBRequest(BaseModel):
+    name: str
+    description: str = ""
+
+
+@router.post("/bases")
+async def create_knowledge_base(req: CreateKBRequest):
+    kb_id = uuid.uuid4().hex[:12]
+    kb_dir = Path(UPLOAD_DIR) / kb_id
+    kb_dir.mkdir(parents=True, exist_ok=True)
+    await create_kb({"kb_id": kb_id, "name": req.name, "description": req.description})
+    return {"kb_id": kb_id, "name": req.name, "description": req.description}
+
+
+@router.get("/bases")
+async def list_knowledge_bases():
+    kbs = await load_kbs()
+    result = []
+    for kb in kbs:
+        docs = await load_kb_docs(kb["kb_id"])
+        total_chunks = sum(d.get("chunk_count", 0) for d in docs)
+        result.append({**kb, "doc_count": len(docs), "total_chunks": total_chunks})
+    return {"knowledge_bases": result}
+
+
+@router.get("/bases/{kb_id}")
+async def get_knowledge_base(kb_id: str):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+    docs = await load_kb_docs(kb_id)
+    total_chunks = sum(d.get("chunk_count", 0) for d in docs)
+    convs = await load_conversations(kb_id)
+    return {**kb, "doc_count": len(docs), "total_chunks": total_chunks, "conversation_count": len(convs)}
+
+
+@router.delete("/bases/{kb_id}")
+async def delete_knowledge_base(kb_id: str):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+
+    chunk_ids = await db_delete_kb(kb_id)
+    vs_manager.remove(kb_id)
+
+    kb_dir = Path(UPLOAD_DIR) / kb_id
+    if kb_dir.exists():
+        for f in kb_dir.iterdir():
+            f.unlink(missing_ok=True)
+        try:
+            kb_dir.rmdir()
+        except Exception:
+            pass
+
+    return {"deleted": True, "kb_id": kb_id}
+
+
 # ── Upload ──────────────────────────────────────────────────────
 
-@router.post("/upload")
-async def upload_document(file: UploadFile = File(...)):
+@router.post("/bases/{kb_id}/upload")
+async def upload_document(kb_id: str, file: UploadFile = File(...)):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+
     if not file.filename:
         raise HTTPException(400, "No filename")
 
@@ -72,7 +143,7 @@ async def upload_document(file: UploadFile = File(...)):
     if ext not in loader.SUPPORTED_EXTENSIONS:
         raise HTTPException(400, f"Unsupported file type: {ext}. Supported: {loader.SUPPORTED_EXTENSIONS}")
 
-    upload_dir = Path(UPLOAD_DIR)
+    upload_dir = Path(UPLOAD_DIR) / kb_id
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     doc_id = uuid.uuid4().hex[:16]
@@ -104,6 +175,7 @@ async def upload_document(file: UploadFile = File(...)):
         raise HTTPException(500, f"Embedding failed: {e}")
 
     chunk_ids = [c.chunk_id for c in chunks]
+    vector_store = vs_manager.get(kb_id)
     vector_store.add(chunk_ids, vectors)
 
     chunk_dicts = [
@@ -120,6 +192,7 @@ async def upload_document(file: UploadFile = File(...)):
 
     doc_record = {
         "doc_id": doc_id,
+        "kb_id": kb_id,
         "filename": file.filename,
         "file_type": ext,
         "chunk_count": len(chunks),
@@ -139,22 +212,30 @@ async def upload_document(file: UploadFile = File(...)):
 
 # ── List ────────────────────────────────────────────────────────
 
-@router.get("/documents")
-async def list_documents():
-    docs = await load_kb_docs()
+@router.get("/bases/{kb_id}/documents")
+async def list_documents(kb_id: str):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+    docs = await load_kb_docs(kb_id)
     total_chunks = sum(d.get("chunk_count", 0) for d in docs)
     return {"documents": docs, "total_chunks": total_chunks}
 
 
 # ── Delete ──────────────────────────────────────────────────────
 
-@router.delete("/documents/{doc_id}")
-async def delete_document(doc_id: str):
+@router.delete("/bases/{kb_id}/documents/{doc_id}")
+async def delete_document(kb_id: str, doc_id: str):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+
     deleted_chunk_ids = await delete_kb_doc(doc_id)
     if deleted_chunk_ids:
+        vector_store = vs_manager.get(kb_id)
         vector_store.remove_by_doc(set(deleted_chunk_ids))
 
-    upload_dir = Path(UPLOAD_DIR)
+    upload_dir = Path(UPLOAD_DIR) / kb_id
     for ext in loader.SUPPORTED_EXTENSIONS:
         p = upload_dir / f"{doc_id}{ext}"
         if p.exists():
@@ -170,8 +251,13 @@ class KBSearchRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=20)
 
 
-@router.post("/search")
-async def search_knowledge(req: KBSearchRequest):
+@router.post("/bases/{kb_id}/search")
+async def search_knowledge(kb_id: str, req: KBSearchRequest):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+
+    vector_store = vs_manager.get(kb_id)
     if vector_store.total_vectors == 0:
         return {"results": [], "total": 0}
 
@@ -206,16 +292,88 @@ async def search_knowledge(req: KBSearchRequest):
     return {"results": results, "total": len(results)}
 
 
+# ── Conversations ──────────────────────────────────────────────
+
+class CreateConvRequest(BaseModel):
+    title: str = ""
+
+
+@router.post("/bases/{kb_id}/conversations")
+async def create_conv(kb_id: str, req: CreateConvRequest):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+    conv_id = uuid.uuid4().hex[:12]
+    await create_conversation({"conv_id": conv_id, "kb_id": kb_id, "title": req.title})
+    return {"conv_id": conv_id, "kb_id": kb_id, "title": req.title}
+
+
+@router.get("/bases/{kb_id}/conversations")
+async def list_conversations(kb_id: str):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+    convs = await load_conversations(kb_id)
+    return {"conversations": convs}
+
+
+@router.delete("/bases/{kb_id}/conversations/{conv_id}")
+async def delete_conv(kb_id: str, conv_id: str):
+    await delete_conversation(conv_id)
+    return {"deleted": True, "conv_id": conv_id}
+
+
+@router.get("/bases/{kb_id}/conversations/{conv_id}/messages")
+async def get_messages(kb_id: str, conv_id: str):
+    msgs = await load_messages(conv_id)
+    for m in msgs:
+        if m.get("sources"):
+            try:
+                m["sources"] = json.loads(m["sources"])
+            except Exception:
+                m["sources"] = []
+        else:
+            m["sources"] = []
+    return {"messages": msgs}
+
+
+class SaveMessageRequest(BaseModel):
+    role: str
+    content: str
+    type: str = "chat"
+    sources: list = Field(default_factory=list)
+
+
+@router.post("/bases/{kb_id}/conversations/{conv_id}/messages")
+async def save_msg(kb_id: str, conv_id: str, req: SaveMessageRequest):
+    msg_id = uuid.uuid4().hex[:12]
+    await save_message({
+        "msg_id": msg_id,
+        "conv_id": conv_id,
+        "role": req.role,
+        "content": req.content,
+        "type": req.type,
+        "sources": json.dumps(req.sources, ensure_ascii=False) if req.sources else "",
+    })
+    return {"msg_id": msg_id}
+
+
 # ── RAG Chat (SSE stream) ──────────────────────────────────────
 
 class KBChatRequest(BaseModel):
     message: str
     doc_ids: list[str] = Field(default_factory=list)
     top_k: int = Field(default=5, ge=1, le=10)
+    conv_id: str = ""
 
 
-@router.post("/chat/stream")
-async def kb_chat_stream(req: KBChatRequest):
+@router.post("/bases/{kb_id}/chat/stream")
+async def kb_chat_stream(kb_id: str, req: KBChatRequest):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+
+    vector_store = vs_manager.get(kb_id)
     if vector_store.total_vectors == 0:
         raise HTTPException(400, "Knowledge base is empty. Please upload documents first.")
 
@@ -265,13 +423,26 @@ async def kb_chat_stream(req: KBChatRequest):
             HumanMessage(content=req.message),
         ]
 
+        full_content = ""
         try:
             async for chunk in llm.astream(messages):
                 if chunk.content:
+                    full_content += chunk.content
                     data = json.dumps({"type": "chunk", "content": chunk.content}, ensure_ascii=False)
                     yield f"data: {data}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+        if req.conv_id and full_content:
+            msg_id = uuid.uuid4().hex[:12]
+            await save_message({
+                "msg_id": msg_id,
+                "conv_id": req.conv_id,
+                "role": "assistant",
+                "content": full_content,
+                "type": "chat",
+                "sources": json.dumps(sources, ensure_ascii=False) if sources else "",
+            })
 
         yield "data: [DONE]\n\n"
 
@@ -289,10 +460,16 @@ class KBGenerateRequest(BaseModel):
     style: str = "wechat_mp"
     doc_ids: list[str] = Field(default_factory=list)
     top_k: int = Field(default=5, ge=1, le=10)
+    conv_id: str = ""
 
 
-@router.post("/generate/stream")
-async def kb_generate_stream(req: KBGenerateRequest):
+@router.post("/bases/{kb_id}/generate/stream")
+async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+
+    vector_store = vs_manager.get(kb_id)
     if vector_store.total_vectors == 0:
         raise HTTPException(400, "Knowledge base is empty. Please upload documents first.")
 
@@ -355,13 +532,26 @@ async def kb_generate_stream(req: KBGenerateRequest):
             HumanMessage(content=human),
         ]
 
+        full_content = ""
         try:
             async for chunk in llm.astream(messages):
                 if chunk.content:
+                    full_content += chunk.content
                     data = json.dumps({"type": "chunk", "content": chunk.content}, ensure_ascii=False)
                     yield f"data: {data}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+        if req.conv_id and full_content:
+            msg_id = uuid.uuid4().hex[:12]
+            await save_message({
+                "msg_id": msg_id,
+                "conv_id": req.conv_id,
+                "role": "assistant",
+                "content": full_content,
+                "type": "article",
+                "sources": json.dumps(sources, ensure_ascii=False) if sources else "",
+            })
 
         yield "data: [DONE]\n\n"
 
@@ -375,26 +565,31 @@ async def kb_generate_stream(req: KBGenerateRequest):
 # ── Internal search (for agent tool) ──────────────────────────
 
 async def kb_search_internal(query: str, top_k: int = 5) -> str:
-    if vector_store.total_vectors == 0:
+    kbs = await load_kbs()
+    if not kbs:
         return "知识库为空，暂无可用文档。"
 
-    try:
-        query_vec = embedding_client.embed_query(query)
-    except Exception as e:
-        return f"检索知识库失败：{e}"
+    all_results = []
+    for kb in kbs:
+        vector_store = vs_manager.get(kb["kb_id"])
+        if vector_store.total_vectors == 0:
+            continue
+        try:
+            query_vec = embedding_client.embed_query(query)
+        except Exception:
+            continue
+        hits = vector_store.search(query_vec, top_k=top_k)
+        if not hits:
+            continue
+        chunk_ids = [cid for cid, _ in hits]
+        chunk_data = await load_kb_chunk_texts(chunk_ids)
+        for cid, score in hits:
+            if cid in chunk_data:
+                cd = chunk_data[cid]
+                page_info = f", 第{cd['page']}页" if cd.get("page", 0) > 0 else ""
+                all_results.append(f"[知识库: {kb['name']}, 来源: {cd['filename']}{page_info}, 相关度: {score:.2f}]\n{cd['text']}")
 
-    hits = vector_store.search(query_vec, top_k=top_k)
-    if not hits:
+    if not all_results:
         return "未在知识库中找到与查询相关的内容。"
 
-    chunk_ids = [cid for cid, _ in hits]
-    chunk_data = await load_kb_chunk_texts(chunk_ids)
-
-    results = []
-    for cid, score in hits:
-        if cid in chunk_data:
-            cd = chunk_data[cid]
-            page_info = f", 第{cd['page']}页" if cd.get("page", 0) > 0 else ""
-            results.append(f"[来源: {cd['filename']}{page_info}, 相关度: {score:.2f}]\n{cd['text']}")
-
-    return "\n\n".join(results)
+    return "\n\n".join(all_results)

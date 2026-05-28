@@ -64,6 +64,8 @@ import { UploadFilled, Loading, FolderOpened, Delete } from '@element-plus/icons
 import { useNewsStore } from '@/stores'
 import { ElMessage } from 'element-plus'
 
+defineProps<{ kbId: string }>()
+
 const store = useNewsStore()
 
 async function handleUpload(options: any) {
