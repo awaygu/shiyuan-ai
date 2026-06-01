@@ -52,8 +52,6 @@ export const SOURCE_LABELS: Record<string, string> = {
 
 export const VIDEO_SOURCES = new Set(['douyin'])
 
-export const JS_RENDERED_SOURCES = new Set(['toutiao', 'cankaoxiaoxi'])
-
 export const PLATFORM_LABELS: Record<string, string> = {
   xiaohongshu: '小红书',
   wechat_mp: '微信公众号',

@@ -1,4 +1,4 @@
-"""FastAPI main entry for Zhixi - AI Interpretation & Knowledge Base system."""
+"""FastAPI main entry for shiyuan - AI Interpretation & Knowledge Base system."""
 
 from __future__ import annotations
 
@@ -126,7 +126,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="智析 - AI解读与知识库", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="识渊 - AI解读与知识库", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

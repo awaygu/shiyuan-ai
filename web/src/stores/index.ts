@@ -6,6 +6,7 @@ import {
   fetchNews,
   refreshNews,
   refreshNewsSource,
+  clearNewsContentCache,
   generateArticle,
   fetchArticles,
   publishArticle,
@@ -173,6 +174,15 @@ export const useNewsStore = defineStore('news', () => {
       newsItems.value = items
     } finally {
       loading.value = false
+    }
+  }
+
+  async function clearContentCache(source: string) {
+    await clearNewsContentCache(source)
+    for (const item of newsItems.value) {
+      if (item.source === source) {
+        item.content = ''
+      }
     }
   }
 
@@ -401,6 +411,7 @@ export const useNewsStore = defineStore('news', () => {
     loadPublishLog,
     loadNewsNowPlatforms,
     refreshNewsNowFeeds,
+    clearContentCache,
     loadRSSFeeds,
     refreshRSSFeeds,
     knowledgeBases,

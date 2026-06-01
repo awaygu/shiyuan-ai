@@ -23,7 +23,7 @@
 ## 🏗️ 项目结构
 
 ```
-zhixi-ai/
+shiyuan-ai/
 ├── docker-compose.newsnow.yml  # NewsNow Docker 中台服务配置
 ├── server/                     # FastAPI 后端服务
 │   ├── app.py                 # 主入口 + 应用配置 + NewsNow 健康检查

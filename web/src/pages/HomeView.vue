@@ -2,7 +2,7 @@
   <div class="home">
     <div class="home-header">
       <span class="logo">📚</span>
-      <h1>智析 · AI解读与知识库</h1>
+      <h1>识渊 · AI解读与知识库</h1>
     </div>
     <div class="cards-grid">
       <div class="entry-card card-new" @click="showCreateDialog = true">

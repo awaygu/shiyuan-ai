@@ -176,6 +176,16 @@ async def update_news_content(news_id: str, content: str) -> None:
         await db.commit()
 
 
+async def clear_news_content_by_source(source: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE news SET content = '' WHERE source = ?",
+            (source,),
+        )
+        await db.commit()
+        return cursor.rowcount
+
+
 async def load_news() -> list[dict[str, Any]]:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row

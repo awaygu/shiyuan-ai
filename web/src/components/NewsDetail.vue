@@ -4,9 +4,6 @@
       <div class="detail-top">
         <div class="detail-title-row">
           <h2 class="detail-title">{{ news.title }}</h2>
-          <el-tag v-if="isVideo" size="small" type="danger" effect="dark" class="media-tag">
-            <el-icon><VideoCamera /></el-icon> 视频
-          </el-tag>
           <el-button text size="small" @click="store.closeDetail()" title="关闭详情">
             <el-icon :size="18"><Close /></el-icon>
           </el-button>
@@ -24,51 +21,42 @@
               {{ isSelected ? '已选中' : '选中解读' }}
             </el-button>
             <el-button v-if="news.url" size="small" @click="openOriginal">
-              <el-icon><Link /></el-icon> {{ isVideo ? '打开视频' : '新窗口打开' }}
+              <el-icon><Link /></el-icon> 新窗口打开
             </el-button>
           </div>
         </div>
-        <div v-if="news.summary" class="detail-summary">
+        <div v-if="news.summary && news.summary !== news.title" class="detail-summary">
           <el-icon><InfoFilled /></el-icon>
           <span>{{ news.summary }}</span>
         </div>
       </div>
 
-      <!-- Video content -->
-      <div v-if="isVideo" class="video-area">
-        <div class="video-placeholder">
-          <el-icon :size="64" color="#909399"><VideoCamera /></el-icon>
-          <p class="video-hint">这是视频新闻，无法在此嵌入播放</p>
+      <div v-if="news.url" class="detail-iframe-wrap">
+        <div v-if="iframeLoading" class="iframe-loading">
+          <el-icon class="is-loading" :size="24"><Loading /></el-icon>
+          <span>正在加载原文...</span>
+          <template v-if="iframeSlow">
+            <span class="slow-hint">加载较慢，可</span>
+            <el-button type="primary" size="small" link @click="openOriginal">新窗口打开</el-button>
+          </template>
+        </div>
+        <div v-if="iframeError" class="iframe-fallback">
+          <el-icon :size="48" color="#e6a23c"><Warning /></el-icon>
+          <p class="fallback-hint">该网站不允许嵌入显示</p>
           <el-button type="primary" @click="openOriginal">
-            <el-icon><Link /></el-icon> 打开视频
+            <el-icon><Link /></el-icon> 在新窗口中打开
           </el-button>
-        </div>
-        <div v-if="videoContent" class="video-metadata">
-          <div class="meta-title">视频元信息</div>
-          <div class="meta-content">{{ videoContent }}</div>
-        </div>
-      </div>
-
-      <!-- Article content -->
-      <div v-else-if="articleContent" class="detail-article">
-        <div class="article-body" v-html="articleContent"></div>
-        <div class="article-footer">
-          <el-button size="small" @click="openOriginal">
-            <el-icon><Link /></el-icon> 查看原文
-          </el-button>
-        </div>
-      </div>
-      <div v-else-if="news.url" class="detail-iframe-wrap">
-        <div v-if="isJsRendered" class="js-rendered-hint">
-          <el-icon><Warning /></el-icon>
-          <span>此页面为动态加载内容，如未显示正文请点击"新窗口打开"查看</span>
         </div>
         <iframe
+          v-show="!iframeError"
+          ref="iframeRef"
           :src="news.url"
           class="detail-iframe"
           sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
           allow="autoplay; fullscreen"
           loading="lazy"
+          @load="onIframeLoad"
+          @error="onIframeError"
         />
       </div>
       <div v-else class="detail-no-url">
@@ -87,67 +75,40 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useNewsStore } from '@/stores'
-import { SOURCE_LABELS, VIDEO_SOURCES, JS_RENDERED_SOURCES } from '@/types'
-import { fetchNewsContent } from '@/api'
+import { SOURCE_LABELS } from '@/types'
 
 const store = useNewsStore()
 const news = computed(() => store.currentDetailNews)
 
-const fetchedContent = ref('')
-const fetchingContent = ref(false)
+const iframeRef = ref<HTMLIFrameElement | null>(null)
+const iframeLoading = ref(false)
+const iframeError = ref(false)
+const iframeSlow = ref(false)
+let slowTimer = 0
 
-watch(news, async (n) => {
-  fetchedContent.value = ''
-  if (!n) return
-  const content = n.content || ''
-  const summary = n.summary || ''
-  if (content && content !== summary && !content.startsWith(summary.slice(0, 50))) {
-    fetchedContent.value = content
-    return
-  }
-  if (n.news_id && !fetchingContent.value) {
-    fetchingContent.value = true
-    try {
-      const res = await fetchNewsContent(n.news_id)
-      if (res.content && res.content !== summary && !res.content.startsWith(summary.slice(0, 50))) {
-        fetchedContent.value = res.content
-      }
-    } catch { /* ignore */ }
-    fetchingContent.value = false
+watch(news, (n) => {
+  iframeLoading.value = !!n?.url
+  iframeError.value = false
+  iframeSlow.value = false
+  clearTimeout(slowTimer)
+  if (n?.url) {
+    slowTimer = window.setTimeout(() => { iframeSlow.value = true }, 10000)
   }
 }, { immediate: true })
 
-const isVideo = computed(() => {
-  if (!news.value) return false
-  const mediaType = news.value.extra?.media_type
-  if (mediaType === 'video') return true
-  return VIDEO_SOURCES.has(news.value.source)
-})
+function onIframeLoad() {
+  iframeLoading.value = false
+  iframeError.value = false
+  iframeSlow.value = false
+  clearTimeout(slowTimer)
+}
 
-const isJsRendered = computed(() => {
-  if (!news.value) return false
-  const mediaType = news.value.extra?.media_type
-  if (mediaType === 'js_rendered') return true
-  return JS_RENDERED_SOURCES.has(news.value.source)
-})
-
-const videoContent = computed(() => {
-  if (!news.value) return ''
-  const content = news.value.content || ''
-  const summary = news.value.summary || ''
-  if (content && content !== summary && !content.startsWith(summary.slice(0, 50))) {
-    return content
-  }
-  return ''
-})
-
-const articleContent = computed(() => {
-  if (isVideo.value) return ''
-  const text = fetchedContent.value
-  if (!text) return ''
-  const paragraphs = text.split(/\n{2,}/).filter(p => p.trim())
-  return paragraphs.map(p => `<p>${p.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`).join('')
-})
+function onIframeError() {
+  iframeLoading.value = false
+  iframeError.value = true
+  iframeSlow.value = false
+  clearTimeout(slowTimer)
+}
 
 const isSelected = computed(() =>
   news.value ? store.selectedNewsIds.includes(news.value.news_id) : false
@@ -199,11 +160,6 @@ function formatTime(iso: string): string {
   line-height: 1.4;
 }
 
-.media-tag {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
 .detail-meta {
   display: flex;
   align-items: center;
@@ -242,55 +198,6 @@ function formatTime(iso: string): string {
   color: #409eff;
 }
 
-.video-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  margin-top: 12px;
-}
-
-.video-placeholder {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  background: #fafbfc;
-  border: 1px solid #ebeef5;
-  border-radius: 8px;
-  min-height: 200px;
-}
-
-.video-hint {
-  font-size: 14px;
-  color: #909399;
-  margin: 0;
-}
-
-.video-metadata {
-  margin-top: 12px;
-  padding: 12px;
-  background: #f5f7fa;
-  border-radius: 8px;
-  border: 1px solid #ebeef5;
-}
-
-.meta-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #606266;
-  margin-bottom: 6px;
-}
-
-.meta-content {
-  font-size: 13px;
-  color: #606266;
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
-
 .detail-iframe-wrap {
   flex: 1;
   border: 1px solid #e4e7ed;
@@ -300,56 +207,52 @@ function formatTime(iso: string): string {
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.detail-article {
-  flex: 1;
-  margin-top: 12px;
-  padding: 16px 20px;
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
-  overflow-y: auto;
-}
-
-.article-body {
-  line-height: 1.8;
-  font-size: 15px;
-  color: #303133;
-}
-
-.article-body p {
-  margin: 0 0 12px;
-  text-indent: 2em;
-}
-
-.article-footer {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid #ebeef5;
-  text-align: right;
-}
-
-.js-rendered-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  background: #fdf6ec;
-  border-bottom: 1px solid #e4e7ed;
-  font-size: 13px;
-  color: #e6a23c;
-  flex-shrink: 0;
-}
-
-.js-rendered-hint .el-icon {
-  flex-shrink: 0;
+  position: relative;
 }
 
 .detail-iframe {
   width: 100%;
   height: 100%;
   border: none;
+  flex: 1;
+}
+
+.iframe-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #fff;
+  z-index: 1;
+  color: #909399;
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+
+.slow-hint {
+  color: #e6a23c;
+  font-size: 13px;
+}
+
+.iframe-fallback {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: #fafbfc;
+}
+
+.fallback-hint {
+  font-size: 14px;
+  color: #909399;
+  margin: 0;
 }
 
 .detail-no-url {

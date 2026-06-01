@@ -40,6 +40,7 @@ from database import (
     append_news,
     save_news,
     update_news_content,
+    clear_news_content_by_source,
     save_article,
     save_publish_record,
 )
@@ -188,6 +189,42 @@ async def fetch_article_content(url: str) -> str:
         return ""
 
 
+def _clean_jina_content(text: str) -> str:
+    """Clean noise from Jina Reader output (headers, nav links, broken images, etc.)."""
+    import re
+    lines = text.split("\n")
+    cleaned = []
+    skip_patterns = [
+        re.compile(r"^Title:\s*", re.IGNORECASE),
+        re.compile(r"^URL Source:\s*", re.IGNORECASE),
+        re.compile(r"^Markdown Content:\s*", re.IGNORECASE),
+    ]
+    for line in lines:
+        stripped = line.strip()
+        if any(p.match(stripped) for p in skip_patterns):
+            continue
+        if re.match(r"^`https?://\S+`\s*$", stripped):
+            continue
+        if re.match(r"^`https?://\S+`\s*\]\(https?://\S+\)\s*$", stripped):
+            continue
+        if re.match(r"^!\s*`https?://\S+`\s*$", stripped):
+            continue
+        if re.match(r"^!\s*`https?://\S+`\s+\]\(https?://\S+\)\s*$", stripped):
+            continue
+        if re.match(r"^\[`\s*$", stripped):
+            continue
+        cleaned.append(line)
+
+    text = "\n".join(cleaned)
+
+    text = re.sub(r"!\s*`https?://\S+?`(\s*\]\(https?://\S+?\))?", "", text)
+    text = re.sub(r"\[`https?://\S+?`\]\(https?://\S+?\)", "", text)
+    text = re.sub(r"`https?://\S+?`(\s*\]\(https?://\S+?\))?", "", text)
+
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 async def fetch_article_content_via_jina(url: str) -> str:
     """Fetch article content via Jina Reader (handles JS-rendered pages)."""
     if not url:
@@ -201,7 +238,9 @@ async def fetch_article_content_via_jina(url: str) -> str:
             resp.raise_for_status()
             text = resp.text.strip()
             if len(text) > 100:
-                return text[:10000]
+                text = _clean_jina_content(text)
+                if len(text) > 100:
+                    return text[:10000]
             return ""
     except Exception as e:
         logger.warning("Jina Reader failed for %s: %s", url, e)

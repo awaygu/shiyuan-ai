@@ -106,7 +106,24 @@ async def get_news_content(news_id: str):
     if not url:
         return {"news_id": news_id, "content": summary, "cached": False, "source": "summary_only"}
 
+    source = item.get("source", "")
+
+    if source in deps.JS_RENDERED_SOURCES:
+        content = await deps.fetch_article_content_via_jina(url)
+        if content:
+            item["content"] = content
+            await deps.update_news_content(news_id, content)
+            return {"news_id": news_id, "content": content, "cached": False, "source": "jina"}
+        content = await deps.fetch_article_content(url)
+        if content:
+            item["content"] = content
+            await deps.update_news_content(news_id, content)
+            return {"news_id": news_id, "content": content, "cached": False, "source": "original"}
+        return {"news_id": news_id, "content": summary, "cached": False, "source": "summary_only"}
+
     content = await deps.fetch_article_content(url)
+    if not content:
+        content = await deps.fetch_article_content_via_jina(url)
     if not content:
         return {"news_id": news_id, "content": summary, "cached": False, "source": "summary_only"}
 
@@ -128,6 +145,18 @@ async def refresh_news_source(source: str):
 
     asyncio.create_task(_bg_crawl_and_save(source, crawler))
     return {"source": source, "status": "refreshing"}
+
+
+@router.post("/news/clear-cache/{source}")
+async def clear_news_content_cache(source: str):
+    if source not in deps.NEWS_SOURCES:
+        raise HTTPException(400, f"Unknown source: {source}")
+    count = await deps.clear_news_content_by_source(source)
+    async with deps.news_lock:
+        for item in deps.news_store:
+            if item.get("source") == source:
+                item["content"] = ""
+    return {"source": source, "cleared": count}
 
 
 @router.get("/sources")

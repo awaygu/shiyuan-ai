@@ -28,6 +28,12 @@ export async function refreshNewsSource(source: string): Promise<{ source: strin
   return res.data
 }
 
+/** Clear cached content for a specific source so it gets re-fetched. */
+export async function clearNewsContentCache(source: string): Promise<{ source: string; cleared: number }> {
+  const res = await api.post(`/news/clear-cache/${encodeURIComponent(source)}`)
+  return res.data
+}
+
 /** Fetch available sources. */
 export async function fetchSources(): Promise<Record<string, string>> {
   const res = await api.get('/sources')
