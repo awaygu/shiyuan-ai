@@ -435,7 +435,7 @@ async def compare_sources(req: CompareRequest):
     interpreter = NewsInterpreter(mock=False)
 
     from langchain_core.messages import SystemMessage, HumanMessage
-    messages = [SystemMessage(content=prompt_manager.system), HumanMessage(content=prompt_text)]
+    messages = [SystemMessage(content=prompt_manager.get_system_prompt("interpret")), HumanMessage(content=prompt_text)]
     result = await interpreter.llm.ainvoke(messages)
 
     return {
@@ -519,7 +519,7 @@ async def briefing_stream():
         yield f"data: {json.dumps({'type': 'loading', 'message': '正在生成今日简报...'}, ensure_ascii=False)}\n\n"
 
         from langchain_core.messages import SystemMessage, HumanMessage
-        messages = [SystemMessage(content=prompt_manager.system), HumanMessage(content=prompt_text)]
+        messages = [SystemMessage(content=prompt_manager.get_system_prompt("interpret")), HumanMessage(content=prompt_text)]
 
         async for chunk in interpreter.llm.astream(messages):
             if chunk.content:

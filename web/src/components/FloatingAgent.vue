@@ -190,12 +190,12 @@
       <div class="resize-handle resize-t" @mousedown.stop="(e) => startResize(e, 't')"></div>
       <div class="resize-handle resize-tl" @mousedown.stop="(e) => startResize(e, 'tl')"></div>
       <div class="resize-handle resize-tr" @mousedown.stop="(e) => startResize(e, 'tr')"></div>
+      <div class="resize-handle resize-r" @mousedown.stop="(e) => startResize(e, 'r')"></div>
+      <div class="resize-handle resize-b" @mousedown.stop="(e) => startResize(e, 'b')"></div>
+      <div class="resize-handle resize-bl" @mousedown.stop="(e) => startResize(e, 'bl')"></div>
+      <div class="resize-handle resize-br" @mousedown.stop="(e) => startResize(e, 'br')"></div>
     </template>
     <div class="resize-handle resize-l" @mousedown.stop="(e) => startResize(e, 'l')"></div>
-    <div class="resize-handle resize-r" @mousedown.stop="(e) => startResize(e, 'r')"></div>
-    <div class="resize-handle resize-b" @mousedown.stop="(e) => startResize(e, 'b')"></div>
-    <div class="resize-handle resize-bl" @mousedown.stop="(e) => startResize(e, 'bl')"></div>
-    <div class="resize-handle resize-br" @mousedown.stop="(e) => startResize(e, 'br')"></div>
   </div>
 </template>
 
@@ -211,7 +211,7 @@ import { marked } from 'marked'
 const props = withDefaults(defineProps<{ offsetRight?: number }>(), { offsetRight: 0 })
 const store = useNewsStore()
 
-const expanded = ref(false)
+const expanded = ref(true)
 const isDragging = ref(false)
 const isResizing = ref(false)
 const resizeDir = ref<'t' | 'b' | 'l' | 'r' | 'tl' | 'tr' | 'bl' | 'br' | null>(null)
@@ -220,7 +220,7 @@ const panelW = ref(440)
 const panelH = ref(580)
 const dragOffset = ref({ x: 0, y: 0 })
 const resizeStart = ref({ x: 0, y: 0, w: 0, h: 0, px: 0, py: 0 })
-const dockedRight = ref(false)
+const dockedRight = ref(true)
 const preDockW = ref(440)
 const preDockH = ref(580)
 const undocking = ref(false)
@@ -760,13 +760,17 @@ function startResize(e: MouseEvent, dir: 't' | 'b' | 'l' | 'r' | 'tl' | 'tr' | '
   e.stopPropagation()
   isResizing.value = true
   resizeDir.value = dir
+  let actualPx = panelPos.value.x
+  if (dockedRight.value) {
+    actualPx = window.innerWidth - panelW.value
+  }
   resizeStart.value = {
     x: e.clientX,
     y: e.clientY,
     w: panelW.value,
     h: panelH.value,
-    px: panelPos.value.x,
-    py: panelPos.value.y,
+    px: actualPx,
+    py: dockedRight.value ? 0 : panelPos.value.y,
   }
   const cursors: Record<string, string> = {
     t: 'n-resize', b: 's-resize', l: 'w-resize', r: 'e-resize',
@@ -790,6 +794,20 @@ function onMouseMove(e: MouseEvent) {
     const dy = e.clientY - resizeStart.value.y
     const dir = resizeDir.value
     if (!dir) return
+
+    if (dockedRight.value) {
+      let newW = resizeStart.value.w
+      if (dir === 'l' || dir === 'tl' || dir === 'bl') {
+        newW = Math.max(MIN_W, resizeStart.value.w - dx)
+      }
+      if (dir === 'r' || dir === 'tr' || dir === 'br') {
+        newW = Math.max(MIN_W, resizeStart.value.w + dx)
+      }
+      const vx = window.innerWidth
+      newW = Math.min(newW, vx)
+      panelW.value = Math.max(MIN_W, newW)
+      return
+    }
 
     let newW = resizeStart.value.w
     let newH = resizeStart.value.h
@@ -1113,7 +1131,7 @@ onBeforeUnmount(() => {
   font-size: 11px;
   color: #64748b;
   border-top: 1px solid #e0e7ff;
-  max-height: 140px;
+  max-height: 500px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;

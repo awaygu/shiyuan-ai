@@ -1,7 +1,8 @@
 """AI news interpreter using LangChain.
 
 Supports both non-streaming and streaming (SSE) output.
-All prompts are managed via PromptManager (loaded from prompts.yaml).
+All prompts are managed via PromptManager (loaded from prompts.py).
+Each task (interpret, generate, chat) uses its own system prompt.
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ from langchain_openai import ChatOpenAI
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from .style_manager import StyleType, prompt_manager
 
-# ── Mock responses per style ──────────────────────────────────────────
 MOCK_RESPONSES: dict[StyleType, str] = {
     StyleType.XIAOHONGSHU: (
         "姐妹们！！这个新闻真的绝了 🤯\n\n"
@@ -76,6 +76,7 @@ class NewsInterpreter:
 
     In mock mode returns predefined responses per style.
     In real mode uses LangChain + OpenAI-compatible LLM.
+    Each task uses its own system prompt via PromptManager.
     """
 
     def __init__(self, mock: bool = True):
@@ -93,21 +94,23 @@ class NewsInterpreter:
                 model_kwargs={"extra_body": {"enable_thinking": False}},
             )
 
-    def _build_generate_human_message(
+    def _build_human_message(
         self,
+        task: str,
         news_list: list[dict],
         style: StyleType = StyleType.WECHAT_MP,
         prompt: str | None = None,
     ) -> str:
         news = _news_text(news_list)
-        if prompt:
-            return self.pm.generate_with_user_prompt_template.format(
-                user_prompt=prompt, news_text=news,
-            )
-        style_prompt = self.pm.get_style_prompt(style)
-        return self.pm.generate_with_style_template.format(
-            style_prompt=style_prompt, news_text=news,
-        )
+        if task == "interpret":
+            return self.pm.get_interpret_human().format(news_text=news)
+        elif task == "generate":
+            if prompt:
+                return self.pm.generate_with_user_prompt_template.format(
+                    user_prompt=prompt, news_text=news,
+                )
+            return self.pm.get_generate_human().format(news_text=news)
+        return news
 
     def build_prompt_text(
         self,
@@ -115,14 +118,16 @@ class NewsInterpreter:
         style: StyleType = StyleType.WECHAT_MP,
         prompt: str | None = None,
         message: str | None = None,
+        task: str = "interpret",
     ) -> str:
         """Build and return the full prompt text (system + human) for display."""
+        system = self.pm.get_system_prompt(task, style)
         if message:
             news = _news_text(news_list)
             human = self.pm.chat_template.format(message=message, news_text=news)
         else:
-            human = self._build_generate_human_message(news_list, style, prompt)
-        return f"[System]\n{self.pm.system}\n\n[User]\n{human}"
+            human = self._build_human_message(task, news_list, style, prompt)
+        return f"[System]\n{system}\n\n[User]\n{human}"
 
     async def interpret(
         self,
@@ -134,9 +139,11 @@ class NewsInterpreter:
         if self.mock:
             return MOCK_RESPONSES.get(style, MOCK_RESPONSES[StyleType.WECHAT_MP])
 
-        human = self._build_generate_human_message(news_list, style, prompt)
+        task = "generate" if prompt else "interpret"
+        system = self.pm.get_system_prompt(task, style)
+        human = self._build_human_message(task, news_list, style, prompt)
         prompt_text = ChatPromptTemplate.from_messages([
-            ("system", self.pm.system),
+            ("system", system),
             ("human", human),
         ])
         chain = prompt_text | self.llm
@@ -163,14 +170,15 @@ class NewsInterpreter:
                 f"希望这个分析对你有帮助！还有什么想了解的吗？"
             )
 
+        system = self.pm.get_system_prompt("chat")
         news = _news_text(news_list)
         human = self.pm.chat_template.format(message=message, news_text=news)
         prompt_text = ChatPromptTemplate.from_messages([
-            ("system", self.pm.system),
+            ("system", system),
             ("human", human),
         ])
         chain = prompt_text | self.llm
-        result = await chain.ainvoke({"message": message, "news_text": news})
+        result = await chain.ainvoke({})
         return result.content
 
     async def generate_article(
@@ -203,6 +211,7 @@ class NewsInterpreter:
         news_list: list[dict],
         style: StyleType = StyleType.WECHAT_MP,
         prompt: str | None = None,
+        task: str = "interpret",
     ) -> AsyncGenerator[str, None]:
         """Streaming version of interpret. Yields text chunks."""
         if self.mock:
@@ -213,9 +222,10 @@ class NewsInterpreter:
                 await asyncio.sleep(0.02)
             return
 
-        human = self._build_generate_human_message(news_list, style, prompt)
+        system = self.pm.get_system_prompt(task, style)
+        human = self._build_human_message(task, news_list, style, prompt)
         prompt_text = ChatPromptTemplate.from_messages([
-            ("system", self.pm.system),
+            ("system", system),
             ("human", human),
         ])
         chain = prompt_text | self.llm
@@ -248,13 +258,14 @@ class NewsInterpreter:
                 await asyncio.sleep(0.02)
             return
 
+        system = self.pm.get_system_prompt("chat")
         news = _news_text(news_list)
         human = self.pm.chat_template.format(message=message, news_text=news)
         prompt_text = ChatPromptTemplate.from_messages([
-            ("system", self.pm.system),
+            ("system", system),
             ("human", human),
         ])
         chain = prompt_text | self.llm
-        async for chunk in chain.astream({"message": message, "news_text": news}):
+        async for chunk in chain.astream({}):
             if chunk.content:
                 yield chunk.content

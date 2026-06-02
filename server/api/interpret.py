@@ -110,10 +110,10 @@ async def interpret_news_stream(req: InterpretRequest):
             yield "data: [DONE]\n\n"
             return
 
-        prompt_text = deps.interpreter.build_prompt_text([item], style)
+        prompt_text = deps.interpreter.build_prompt_text([item], style, task="interpret")
         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
 
-        async for chunk in deps.interpreter.astream_interpret([item], style):
+        async for chunk in deps.interpreter.astream_interpret([item], style, task="interpret"):
             data = json.dumps({"type": "chunk", "content": chunk}, ensure_ascii=False)
             yield f"data: {data}\n\n"
         yield "data: [DONE]\n\n"
@@ -137,7 +137,7 @@ async def chat_interpret_stream(req: ChatRequest):
             yield "data: [DONE]\n\n"
             return
 
-        prompt_text = deps.interpreter.build_prompt_text(items, message=req.message)
+        prompt_text = deps.interpreter.build_prompt_text(items, message=req.message, task="chat")
         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
 
         async for chunk in deps.interpreter.astream_chat(req.message, items):
@@ -186,11 +186,11 @@ async def generate_article_stream(req: GenerateArticleRequest):
             yield "data: [DONE]\n\n"
             return
 
-        prompt_text = deps.interpreter.build_prompt_text(items, style, prompt=req.prompt)
+        prompt_text = deps.interpreter.build_prompt_text(items, style, prompt=req.prompt, task="generate")
         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
 
         full_content = ""
-        async for chunk in deps.interpreter.astream_interpret(items, style, prompt=req.prompt):
+        async for chunk in deps.interpreter.astream_interpret(items, style, prompt=req.prompt, task="generate"):
             full_content += chunk
             data = json.dumps({"type": "chunk", "content": chunk}, ensure_ascii=False)
             yield f"data: {data}\n\n"
