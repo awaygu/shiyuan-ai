@@ -86,7 +86,7 @@ const store = useNewsStore()
 const chatPanelRef = ref<InstanceType<typeof KBChatPanel> | null>(null)
 const showSidebar = ref(true)
 
-const sidebarWidth = ref(320)
+const sidebarWidth = ref(450)
 const actionsWidth = ref(280)
 const resizing = ref<'left' | 'right' | null>(null)
 const resizeStartX = ref(0)

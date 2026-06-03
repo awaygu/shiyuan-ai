@@ -31,7 +31,6 @@
         <p v-if="kb.description" class="card-desc">{{ kb.description }}</p>
         <div class="kb-stats">
           <span>{{ kb.doc_count ?? 0 }} 文档</span>
-          <span>{{ kb.total_chunks ?? 0 }} 切片</span>
         </div>
         <div class="kb-card-actions">
           <span class="kb-time">{{ formatTime(kb.created_at) }}</span>

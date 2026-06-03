@@ -10,14 +10,14 @@ from typing import Any
 import aiosqlite
 import numpy as np
 
-from config import UPLOAD_DIR
+from config import UPLOAD_DIR, KB_EMBEDDING_DIM
 
 logger = logging.getLogger(__name__)
 
 
 class FAISSVectorStore:
-    def __init__(self, dim: int = 1536, kb_id: str = "default"):
-        self.dim = dim
+    def __init__(self, dim: int = 0, kb_id: str = "default"):
+        self.dim = dim or KB_EMBEDDING_DIM
         self.kb_id = kb_id
         self.index = None
         self.id_map: list[str] = []
@@ -147,7 +147,8 @@ class FAISSVectorStore:
 
 
 class VectorStoreManager:
-    def __init__(self, dim: int = 1536):
+    def __init__(self, dim: int = 0):
+        self.dim = dim or KB_EMBEDDING_DIM
         self.dim = dim
         self._stores: dict[str, FAISSVectorStore] = {}
 

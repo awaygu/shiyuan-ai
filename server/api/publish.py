@@ -2,44 +2,171 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from . import deps
+from publishers import WechatMpPublisher, XiaohongshuPublisher, DouyinPublisher, BrowserPublisher
+from publishers.wechat_mp import WechatApiError, WECHAT_IP_WHITELIST_ERROR
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["publish"])
 
+_publish_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_lock(platform: str) -> asyncio.Lock:
+    if platform not in _publish_locks:
+        _publish_locks[platform] = asyncio.Lock()
+    return _publish_locks[platform]
+
+
+def _init_publishers():
+    from config import WECHAT_APP_ID, WECHAT_APP_SECRET
+
+    wechat = WechatMpPublisher(app_id=WECHAT_APP_ID, app_secret=WECHAT_APP_SECRET)
+    xiaohongshu = XiaohongshuPublisher()
+    douyin = DouyinPublisher()
+
+    deps.PUBLISHERS = {
+        "xiaohongshu": xiaohongshu,
+        "wechat_mp": wechat,
+        "douyin": douyin,
+    }
+
+
+_init_publishers()
+
 
 class PublishRequest(BaseModel):
-    article_id: str
+    article_id: str | None = None
+    title: str | None = None
+    content: str | None = None
     platform: str
 
 
 @router.post("/publish")
 async def publish_article(req: PublishRequest):
-    article = deps.find_article(req.article_id)
-    if not article:
-        raise HTTPException(404, f"Article not found: {req.article_id}")
+    lock = _get_lock(req.platform)
+    if lock.locked():
+        raise HTTPException(429, f"A publish task is already running for {req.platform}")
 
-    publisher = deps.PUBLISHERS.get(req.platform)
+    async with lock:
+        publisher = deps.PUBLISHERS.get(req.platform)
+        if not publisher:
+            raise HTTPException(
+                400,
+                f"Unknown platform: {req.platform}. Available: {list(deps.PUBLISHERS.keys())}",
+            )
+
+        title = req.title
+        content = req.content
+
+        if req.article_id and (not title or not content):
+            article = deps.find_article(req.article_id)
+            if not article:
+                raise HTTPException(404, f"Article not found: {req.article_id}")
+            title = title or article.get("title", "")
+            content = content or article.get("content", "")
+
+        if not title or not content:
+            raise HTTPException(400, "title and content are required (either directly or via article_id)")
+
+        try:
+            result = await publisher.publish(title, content)
+        except Exception as e:
+            logger.error("Publish error for %s: %s", req.platform, e)
+            result = type(result).__new__(type(result))
+            result.success = False
+            result.platform = req.platform
+            result.article_title = title
+            result.error_message = str(e)
+
+        record = {
+            "article_id": req.article_id or "",
+            "platform": req.platform,
+            "success": result.success,
+            "url": result.published_url,
+            "timestamp": result.published_at.isoformat(),
+            "need_login": result.need_login,
+            "error_message": result.error_message,
+            "extra": result.extra,
+        }
+
+        async with deps.article_lock:
+            deps.publish_log.append(record)
+            await deps.save_publish_record(record)
+
+        return record
+
+
+@router.post("/publish/{platform}/login")
+async def login_platform(platform: str):
+    publisher = deps.PUBLISHERS.get(platform)
     if not publisher:
-        raise HTTPException(400, f"Unknown platform: {req.platform}. Available: {list(deps.PUBLISH_PLATFORMS.keys())}")
+        raise HTTPException(400, f"Unknown platform: {platform}")
 
-    result = await publisher.publish(article["title"], article["content"])
-    record = {
-        "article_id": req.article_id,
-        "platform": req.platform,
-        "success": result.success,
-        "url": result.published_url,
-        "timestamp": result.published_at.isoformat(),
-        "extra": result.extra,
-    }
+    lock = _get_lock(platform)
+    if lock.locked():
+        raise HTTPException(429, f"A task is already running for {platform}")
 
-    async with deps.article_lock:
-        deps.publish_log.append(record)
-        await deps.save_publish_record(record)
+    error_message = ""
+    login_exc = None
+    async with lock:
+        try:
+            success = await publisher.do_login()
+        except Exception as e:
+            success = False
+            error_message = str(e)
+            login_exc = e
 
-    return record
+    if not success:
+        if isinstance(publisher, WechatMpPublisher):
+            if isinstance(login_exc, WechatApiError) and login_exc.errcode == WECHAT_IP_WHITELIST_ERROR:
+                error_message = f"服务器IP不在微信白名单，请在微信公众平台 → 开发 → 基本配置中添加IP白名单"
+            elif not publisher.app_id or not publisher.app_secret:
+                error_message = error_message or "未配置 WECHAT_APP_ID 或 WECHAT_APP_SECRET，请在 .env 中设置"
+            else:
+                error_message = error_message or "access_token 获取失败，请检查 AppID 和 AppSecret 是否正确"
+        elif isinstance(publisher, BrowserPublisher) and publisher._last_login_error:
+            error_message = publisher._last_login_error
+        else:
+            error_message = error_message or "登录失败或超时，请重试"
+
+    return {"success": success, "platform": platform, "error_message": error_message}
+
+
+@router.get("/publish/{platform}/status")
+async def login_status(platform: str):
+    publisher = deps.PUBLISHERS.get(platform)
+    if not publisher:
+        raise HTTPException(400, f"Unknown platform: {platform}")
+
+    error_message = ""
+    status_exc = None
+    try:
+        logged_in = await publisher.check_login()
+    except Exception as e:
+        logged_in = False
+        error_message = str(e)
+        status_exc = e
+
+    if not logged_in and not error_message:
+        if isinstance(publisher, WechatMpPublisher):
+            if isinstance(status_exc, WechatApiError) and status_exc.errcode == WECHAT_IP_WHITELIST_ERROR:
+                error_message = "服务器IP不在微信白名单，请在公众平台 → 开发 → 基本配置中添加IP白名单"
+            elif not publisher.app_id or not publisher.app_secret:
+                error_message = "未配置 WECHAT_APP_ID 或 WECHAT_APP_SECRET"
+            else:
+                error_message = "access_token 无效，请检查配置"
+        elif isinstance(publisher, BrowserPublisher):
+            error_message = "Cookies 不存在或已过期，请重新扫码登录"
+
+    return {"logged_in": logged_in, "platform": platform, "error_message": error_message}
 
 
 @router.get("/publish_log")

@@ -43,10 +43,6 @@
         <span>文档数</span>
         <span class="stat-val">{{ store.kbDocuments.length }}</span>
       </div>
-      <div class="stat-row">
-        <span>总切片</span>
-        <span class="stat-val">{{ store.kbTotalChunks }}</span>
-      </div>
     </div>
   </div>
 </template>

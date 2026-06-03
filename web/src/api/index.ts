@@ -118,9 +118,27 @@ export async function fetchArticles(): Promise<Article[]> {
   return res.data.items
 }
 
-/** Publish an article to a platform. */
-export async function publishArticle(articleId: string, platform: string): Promise<PublishRecord> {
-  const res = await api.post('/publish', { article_id: articleId, platform })
+/** Publish an article to a platform (by article_id or content). */
+export async function publishArticle(articleId: string, platform: string): Promise<PublishRecord & { need_login?: boolean }> {
+  const res = await api.post('/publish', { article_id: articleId, platform }, { timeout: 120000 })
+  return res.data
+}
+
+/** Publish by content (for KB articles). */
+export async function publishByContent(title: string, content: string, platform: string): Promise<PublishRecord & { need_login?: boolean }> {
+  const res = await api.post('/publish', { title, content, platform }, { timeout: 120000 })
+  return res.data
+}
+
+/** Trigger login for browser-based platform. */
+export async function loginPlatform(platform: string): Promise<{ success: boolean; error_message?: string }> {
+  const res = await api.post(`/publish/${encodeURIComponent(platform)}/login`, {}, { timeout: 120000 })
+  return res.data
+}
+
+/** Check login status for a platform. */
+export async function getLoginStatus(platform: string): Promise<{ logged_in: boolean; error_message?: string }> {
+  const res = await api.get(`/publish/${encodeURIComponent(platform)}/status`)
   return res.data
 }
 
@@ -389,15 +407,23 @@ export async function updateKnowledgeBase(kbId: string, data: { name?: string; d
   return res.data
 }
 
-/** Upload a document to a knowledge base. */
-export async function uploadDocument(kbId: string, file: File): Promise<{ doc_id: string; filename: string; chunk_count: number; file_size: number }> {
+/** Upload documents to a knowledge base. */
+export async function uploadDocuments(kbId: string, files: File[]): Promise<{ results: any[]; errors: any[] }> {
   const formData = new FormData()
-  formData.append('file', file)
+  for (const file of files) {
+    formData.append('files', file)
+  }
   const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/upload`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,
   })
   return res.data
+}
+
+/** Fetch suggested questions for a knowledge base. */
+export async function fetchKBSuggestions(kbId: string): Promise<string[]> {
+  const res = await api.get(`/knowledge/bases/${encodeURIComponent(kbId)}/suggestions`, { timeout: 30000 })
+  return res.data.suggestions || []
 }
 
 /** Fetch all knowledge base documents. */

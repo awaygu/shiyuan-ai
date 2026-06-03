@@ -16,7 +16,7 @@ import {
   fetchRSSFeeds,
   refreshRSS,
   fetchKBDocuments,
-  uploadDocument,
+  uploadDocuments,
   deleteKBDocument,
   renameKBDocument,
   createKnowledgeBase,
@@ -296,13 +296,14 @@ export const useNewsStore = defineStore('news', () => {
     }
   }
 
-  async function uploadKBDoc(file: File, kbId?: string) {
+  async function uploadKBDocs(files: File[], kbId?: string) {
     const id = kbId || currentKB.value?.kb_id
     if (!id) return
     kbUploading.value = true
     try {
-      await uploadDocument(id, file)
+      const { results, errors } = await uploadDocuments(id, files)
       await loadKBDocuments(id)
+      return { results, errors }
     } finally {
       kbUploading.value = false
     }
@@ -429,7 +430,7 @@ export const useNewsStore = defineStore('news', () => {
     currentConvId,
     loadCurrentKB,
     loadKBDocuments,
-    uploadKBDoc,
+    uploadKBDocs,
     deleteKBDoc,
     renameKBDoc,
     kbSelectedDocIds,

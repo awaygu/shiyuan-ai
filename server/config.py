@@ -72,6 +72,15 @@ PUBLISH_PLATFORMS = {
     "douyin": "抖音",
 }
 
+# WeChat Official Account (certified service account)
+WECHAT_APP_ID = os.getenv("WECHAT_APP_ID", "")
+WECHAT_APP_SECRET = os.getenv("WECHAT_APP_SECRET", "")
+
+# Browser automation (Playwright)
+COOKIES_DIR = os.getenv("COOKIES_DIR", str(Path(__file__).parent / "cookies"))
+PUBLISH_HEADLESS = os.getenv("PUBLISH_HEADLESS", "true").lower() == "true"
+PUBLISH_TIMEOUT = int(os.getenv("PUBLISH_TIMEOUT", "120"))
+
 # DashScope
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
 
@@ -79,5 +88,7 @@ DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
 KB_CHUNK_SIZE = int(os.getenv("KB_CHUNK_SIZE", "500"))
 KB_CHUNK_OVERLAP = int(os.getenv("KB_CHUNK_OVERLAP", "50"))
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", str(Path(__file__).parent / "uploads"))
+KB_EMBEDDING_DIM = int(os.getenv("KB_EMBEDDING_DIM", "1024"))
+KB_EMBEDDING_MODEL = os.getenv("KB_EMBEDDING_MODEL", "text-embedding-v4")
 KB_VISION_MODEL = os.getenv("KB_VISION_MODEL", "qwen-vl-ocr-latest")
 KB_VISION_BASE_URL = os.getenv("KB_VISION_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")

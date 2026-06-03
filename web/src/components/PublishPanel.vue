@@ -82,10 +82,11 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 import { useNewsStore } from '@/stores'
 import { STYLE_LABELS, PLATFORM_LABELS } from '@/types'
+import { loginPlatform } from '@/api'
 
 const store = useNewsStore()
 const activeTab = ref('articles')
@@ -116,9 +117,33 @@ function renderMarkdown(text: string): string {
 
 async function handlePublish(articleId: string, platform: string) {
   publishingIds.value.push(articleId)
+  const label = getPlatformLabel(platform)
   try {
-    await store.publish(articleId, platform)
-    ElMessage.success(`已发布到 ${getPlatformLabel(platform)} 🎉`)
+    const res = await store.publish(articleId, platform)
+    if (res.need_login) {
+      try {
+        const loginHint = res.error_message || `${label}需要重新登录，请在弹出的浏览器窗口中扫码。`
+        await ElMessageBox.confirm(loginHint, '需要登录', { confirmButtonText: '开始登录', cancelButtonText: '取消', type: 'warning' }
+        )
+        ElMessage.info('正在登录，请稍候...')
+        const loginRes = await loginPlatform(platform)
+        if (loginRes.success) {
+          ElMessage.success('登录成功，继续发布...')
+          const res2 = await store.publish(articleId, platform)
+          if (res2.success) {
+            ElMessage.success(`已发布到${label}`)
+          } else {
+            ElMessage.error(`发布失败：${res2.error_message || '未知错误'}`)
+          }
+        } else {
+          ElMessage.error(loginRes.error_message || '登录失败，请重试')
+        }
+      } catch {
+        return
+      }
+    } else {
+      ElMessage.success(`已发布到 ${label}`)
+    }
   } catch (e: any) {
     ElMessage.error(`发布失败：${e.message}`)
   } finally {

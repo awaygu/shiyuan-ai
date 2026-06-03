@@ -8,13 +8,13 @@ from typing import Sequence
 import dashscope
 from dashscope import TextEmbedding
 
-from config import DASHSCOPE_API_KEY
+from config import DASHSCOPE_API_KEY, KB_EMBEDDING_DIM, KB_EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = "text-embedding-v4"
-EMBEDDING_DIM = 1536
-BATCH_SIZE = 25
+EMBEDDING_DIM = KB_EMBEDDING_DIM
+EMBEDDING_MODEL = KB_EMBEDDING_MODEL
+BATCH_SIZE = 10
 
 
 class DashScopeEmbedding:

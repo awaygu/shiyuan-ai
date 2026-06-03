@@ -52,7 +52,29 @@
             class="msg-actions"
           >
             <button class="msg-action-btn" @click="copyContent(msg.content)">复制</button>
+            <el-dropdown @command="(p: string) => onPublish(msg.content, p)">
+              <button class="msg-action-btn">发布到 ▾</button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="xiaohongshu">小红书</el-dropdown-item>
+                  <el-dropdown-item command="wechat_mp">微信公众号</el-dropdown-item>
+                  <el-dropdown-item command="douyin">抖音</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </div>
+        </div>
+      </div>
+
+      <div v-if="suggestions.length > 0 && !generating" class="suggestions-area">
+        <div class="suggestions-label">推荐提问</div>
+        <div class="suggestions-list">
+          <button
+            v-for="q in suggestions"
+            :key="q"
+            class="suggestion-btn"
+            @click="onClickSuggestion(q)"
+          >{{ q }}</button>
         </div>
       </div>
     </div>
@@ -79,11 +101,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, nextTick, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import { useNewsStore } from '@/stores'
-import { kbStreamChat, kbStreamGenerate } from '@/api'
+import { kbStreamChat, kbStreamGenerate, fetchKBSuggestions, publishByContent, loginPlatform } from '@/api'
 import type { StyleType, KBSource, KBMessage } from '@/types'
 import { marked } from 'marked'
 
@@ -107,6 +129,10 @@ const messagesRef = ref<HTMLElement | null>(null)
 const chatMessage = ref('')
 const generating = ref(false)
 const expandedSources = ref<Set<string>>(new Set())
+const suggestions = ref<string[]>([])
+const loadingSuggestions = ref(false)
+
+watch(() => props.kbId, () => { loadSuggestions() }, { immediate: true })
 
 function sourceKey(msgIdx: number, srcIdx: number): string {
   return `${msgIdx}-${srcIdx}`
@@ -168,6 +194,7 @@ function pushDone(msgIdx: number) {
   messages.value[msgIdx].streaming = false
   generating.value = false
   scrollToBottom()
+  loadSuggestions()
 }
 
 function pushError(msgIdx: number, err: string) {
@@ -180,6 +207,22 @@ function pushError(msgIdx: number, err: string) {
 function onInputEnter(e: KeyboardEvent) {
   if (e.ctrlKey || e.shiftKey) return
   e.preventDefault()
+  sendChat()
+}
+
+async function loadSuggestions() {
+  loadingSuggestions.value = true
+  try {
+    suggestions.value = await fetchKBSuggestions(props.kbId)
+  } catch {
+    suggestions.value = []
+  } finally {
+    loadingSuggestions.value = false
+  }
+}
+
+function onClickSuggestion(q: string) {
+  chatMessage.value = q
   sendChat()
 }
 
@@ -228,10 +271,27 @@ function generateArticle(style: StyleType) {
     douyin: '抖音',
   }
 
-  const lastUserMsg = [...messages.value].reverse().find(m => m.role === 'user')
-  const topic = lastUserMsg?.content || '总结知识库核心内容'
+  ElMessageBox.prompt('', `生成${styleLabels[style]}风格文章`, {
+    confirmButtonText: '生成',
+    cancelButtonText: '取消',
+    inputPlaceholder: '输入额外要求（可选，如：聚焦新能源、强调数据对比...）',
+    inputType: 'textarea',
+    inputAttrs: { rows: 3 },
+  }).then(({ value }) => {
+    doGenerate(style, value || '')
+  }).catch(() => {})
+}
 
-  pushUserMessage(`用${styleLabels[style]}风格生成文章`)
+function doGenerate(style: StyleType, extraReq: string) {
+  const styleLabels: Record<string, string> = {
+    xiaohongshu: '小红书',
+    wechat_mp: '公众号',
+    douyin: '抖音',
+  }
+
+  const label = `用${styleLabels[style]}风格生成文章`
+  const userMsg = extraReq ? `${label}\n${extraReq}` : label
+  pushUserMessage(userMsg)
   generating.value = true
 
   const msgIdx = addAssistantMessage('article')
@@ -240,7 +300,7 @@ function generateArticle(style: StyleType) {
   const convId = store.currentConvId
   const docIds = store.kbSelectedDocIds
 
-  kbStreamGenerate(props.kbId, topic, style, {
+  kbStreamGenerate(props.kbId, userMsg, style, {
     onChunk(text) {
       messages.value[msgIdx].content += text
       scrollToBottom()
@@ -265,6 +325,48 @@ function copyContent(text: string) {
   })
 }
 
+const platformLabels: Record<string, string> = {
+  xiaohongshu: '小红书',
+  wechat_mp: '微信公众号',
+  douyin: '抖音',
+}
+
+async function onPublish(content: string, platform: string) {
+  const label = platformLabels[platform] || platform
+  const title = content.split('\n').find(l => l.trim() && !l.trim().startsWith('#'))?.trim()?.slice(0, 30) || '知识库文章'
+
+  try {
+    const res = await publishByContent(title, content, platform)
+    if (res.need_login) {
+      try {
+        const loginHint = res.error_message || `${label}需要重新登录，请在弹出的浏览器窗口中扫码。`
+        await ElMessageBox.confirm(loginHint, '需要登录', { confirmButtonText: '开始登录', cancelButtonText: '取消', type: 'warning' })
+        ElMessage.info('正在打开登录窗口，请扫码...')
+        const loginRes = await loginPlatform(platform)
+        if (loginRes.success) {
+          ElMessage.success('登录成功，继续发布...')
+          const res2 = await publishByContent(title, content, platform)
+          if (res2.success) {
+            ElMessage.success(`已发布到${label}`)
+          } else {
+            ElMessage.error(`发布失败：${res2.error_message || '未知错误'}`)
+          }
+        } else {
+          ElMessage.error(loginRes.error_message || '登录失败，请重试')
+        }
+      } catch {
+        return
+      }
+    } else if (res.success) {
+      ElMessage.success(`已发布到${label}`)
+    } else {
+      ElMessage.error(`发布失败：${res.error_message || '未知错误'}`)
+    }
+  } catch (e: any) {
+    ElMessage.error(`发布失败：${e.message || '未知错误'}`)
+  }
+}
+
 function loadHistory(historyMessages: KBMessage[]) {
   messages.value = [
     { role: 'assistant', content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。', type: 'chat' },
@@ -286,7 +388,7 @@ function clearMessages() {
   ]
 }
 
-defineExpose({ generateArticle, loadHistory, clearMessages })
+defineExpose({ generateArticle, loadHistory, clearMessages, loadSuggestions })
 </script>
 
 <style scoped>
@@ -562,6 +664,42 @@ defineExpose({ generateArticle, loadHistory, clearMessages })
 @keyframes blink {
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }
+}
+
+.suggestions-area {
+  padding: 8px 0 16px;
+}
+
+.suggestions-label {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 8px;
+  padding-left: 4px;
+}
+
+.suggestions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.suggestion-btn {
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+  line-height: 1.4;
+}
+
+.suggestion-btn:hover {
+  border-color: #a5b4fc;
+  color: #4f46e5;
+  background: #eef2ff;
 }
 
 .msg-actions {

@@ -493,25 +493,6 @@ async def save_kb_doc(doc: dict[str, Any]) -> None:
         await db.commit()
 
 
-async def load_kb_docs(kb_id: str) -> list[dict[str, Any]]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT * FROM kb_documents WHERE kb_id = ? ORDER BY upload_time DESC", (kb_id,))
-        rows = await cursor.fetchall()
-        return [
-            {
-                "doc_id": row["doc_id"],
-                "kb_id": row["kb_id"],
-                "filename": row["filename"],
-                "file_type": row["file_type"],
-                "chunk_count": row["chunk_count"],
-                "file_size": row["file_size"],
-                "upload_time": row["upload_time"],
-                "status": row["status"],
-            }
-            for row in rows
-        ]
-
 
 async def delete_kb_doc(doc_id: str) -> list[str]:
     async with aiosqlite.connect(DB_PATH) as db:

@@ -3,7 +3,7 @@
     <div class="panel-header">
       <h3>📁 文件管理</h3>
       <div class="panel-header-right">
-        <span class="stat">{{ store.kbTotalChunks }} 切片</span>
+        <span class="stat">{{ store.kbDocuments.length }} 文件</span>
         <button class="collapse-btn" title="收起侧栏" @click="$emit('collapse')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 19L8 12L15 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -13,6 +13,7 @@
     <el-upload
       class="upload-area"
       drag
+      multiple
       :auto-upload="true"
       :show-file-list="false"
       :http-request="handleUpload"
@@ -50,7 +51,7 @@
         v-for="doc in store.kbDocuments"
         :key="doc.doc_id"
         class="doc-card"
-        :class="{ selected: store.kbSelectedDocIds.includes(doc.doc_id) }"
+        :class="{ selected: store.kbSelectedDocIds.includes(doc.doc_id), expanded: expandedDocId === doc.doc_id }"
       >
         <el-checkbox
           :model-value="store.kbSelectedDocIds.includes(doc.doc_id)"
@@ -75,7 +76,10 @@
           </template>
           <div class="doc-meta">
             <span>{{ formatSize(doc.file_size) }}</span>
-            <span>{{ doc.chunk_count }} 切片</span>
+          </div>
+          <div v-if="expandedDocId === doc.doc_id" class="doc-summary">
+            <div v-if="doc.summary" class="summary-text">{{ doc.summary }}</div>
+            <div v-else class="summary-empty">暂无概要</div>
           </div>
         </div>
         <el-button
@@ -91,33 +95,20 @@
           text
           size="small"
           :loading="store.kbDeleting"
-          @click.stop="onDelete(doc.doc_id)"
+          @click.stop="onDelete(doc.doc_id, doc.filename)"
           class="doc-del"
         >
           <el-icon><Delete /></el-icon>
         </el-button>
       </div>
     </div>
-
-    <el-dialog v-model="summaryVisible" :title="summaryDoc?.filename" width="420px" class="summary-dialog">
-      <div v-if="summaryDoc" class="summary-content">
-        <div class="summary-meta">
-          <span>{{ fileIcon(summaryDoc.file_type) }} {{ summaryDoc.file_type }}</span>
-          <span>{{ formatSize(summaryDoc.file_size) }}</span>
-          <span>{{ summaryDoc.chunk_count }} 切片</span>
-        </div>
-        <el-divider style="margin: 12px 0" />
-        <div v-if="summaryDoc.summary" class="summary-text">{{ summaryDoc.summary }}</div>
-        <div v-else class="summary-empty">暂无概要</div>
-      </div>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { UploadFilled, Loading, FolderOpened, Delete, Edit } from '@element-plus/icons-vue'
 import { useNewsStore } from '@/stores'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { ref, nextTick } from 'vue'
 import type { KBDoc } from '@/types'
 
@@ -129,12 +120,10 @@ const store = useNewsStore()
 const editingDocId = ref('')
 const editFilename = ref('')
 const renameInputRef = ref<InstanceType<typeof ElInput> | null>(null)
-const summaryVisible = ref(false)
-const summaryDoc = ref<KBDoc | null>(null)
+const expandedDocId = ref('')
 
 function onDocClick(doc: KBDoc) {
-  summaryDoc.value = doc
-  summaryVisible.value = true
+  expandedDocId.value = expandedDocId.value === doc.doc_id ? '' : doc.doc_id
 }
 
 function onSelectAll(val: boolean | string) {
@@ -167,26 +156,47 @@ async function onSaveRename(docId: string) {
   }
 }
 
+const pendingFiles = ref<File[]>([])
+
 async function handleUpload(options: any) {
   const file = options.file as File
   const ext = file.name.split('.').pop()?.toLowerCase()
   const allowed = ['pdf', 'docx', 'doc', 'txt', 'md', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']
   if (!ext || !allowed.includes(ext)) {
-    ElMessage.error('不支持的文件格式')
+    ElMessage.error(`${file.name} 不支持的文件格式`)
     options.onError(new Error('Unsupported'))
     return
   }
+  pendingFiles.value.push(file)
+  if (pendingFiles.value.length === 1) {
+    setTimeout(flushUploads, 50)
+  }
+  options.onSuccess({})
+}
+
+async function flushUploads() {
+  const files = [...pendingFiles.value]
+  pendingFiles.value = []
+  if (files.length === 0) return
   try {
-    await store.uploadKBDoc(file)
-    ElMessage.success(`${file.name} 上传成功`)
-    options.onSuccess({})
+    const { results, errors } = await store.uploadKBDocs(files)
+    if (results.length > 0) {
+      ElMessage.success(`${results.length} 个文件上传成功`)
+    }
+    for (const e of errors) {
+      ElMessage.error(`${e.filename} 上传失败：${e.detail}`)
+    }
   } catch (e: any) {
-    ElMessage.error(`上传失败：${e.message || '未知错误'}`)
-    options.onError(e)
+    ElMessage.error(`批量上传失败：${e.message || '未知错误'}`)
   }
 }
 
-async function onDelete(docId: string) {
+async function onDelete(docId: string, filename: string) {
+  try {
+    await ElMessageBox.confirm(`确定删除文件「${filename}」？删除后不可恢复。`, '确认删除', { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' })
+  } catch {
+    return
+  }
   try {
     await store.deleteKBDoc(docId)
     ElMessage.success('已删除')
@@ -348,13 +358,18 @@ function formatSize(bytes: number): string {
 
 .doc-card {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 10px;
   border-radius: 8px;
   border: 1px solid #ebeef5;
   margin-bottom: 6px;
   transition: all 0.15s;
+}
+
+.doc-card.expanded {
+  border-color: #c7d2fe;
+  background: #f5f3ff;
 }
 
 .doc-card.selected {
@@ -423,25 +438,22 @@ function formatSize(bytes: number): string {
   color: #f87171;
 }
 
-.summary-meta {
-  display: flex;
-  gap: 10px;
-  font-size: 13px;
-  color: #64748b;
+.doc-summary {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #e2e8f0;
 }
 
-.summary-text {
-  font-size: 14px;
-  line-height: 1.7;
-  color: #334155;
+.doc-summary .summary-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #64748b;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.summary-empty {
+.doc-summary .summary-empty {
   color: #94a3b8;
-  font-size: 13px;
-  text-align: center;
-  padding: 20px 0;
+  font-size: 12px;
 }
 </style>

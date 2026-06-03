@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from config import UPLOAD_DIR, LLM_API_KEY, LLM_BASE_URL
+from config import UPLOAD_DIR, LLM_API_KEY, LLM_BASE_URL, KB_EMBEDDING_DIM
 from database import (
     create_kb,
     load_kbs,
@@ -48,17 +48,16 @@ SSE_HEADERS = {
 embedding_client = DashScopeEmbedding()
 chunker = TextChunker()
 loader = DocumentLoader()
-vs_manager = VectorStoreManager()
+vs_manager = VectorStoreManager(dim=KB_EMBEDDING_DIM)
 
 
 KB_RAG_SYSTEM_PROMPT = """\
-你是知识库AI助手。以下是从知识库中检索到的相关文档片段，请基于这些内容回答用户问题。
+你是知识库AI助手。以下是从知识库中检索到的相关文档片段，请优先基于这些内容回答用户问题。
 
 规则：
-- 严格基于知识库内容回答，不得编造知识库中未提及的信息
-- 引用知识库内容时，标注来源文件名
-- 如果知识库中没有相关信息，请明确说明"知识库中暂无相关信息"，不要自行推测或编造答案
-- 如果检索到的内容与用户问题无关，也请说明"知识库中暂无相关信息"
+- 优先参考知识库内容回答，引用时标注来源文件名
+- 如果知识库中有相关信息，请结合知识库内容详细回答
+- 如果知识库中没有相关信息，可以基于自身知识回答，但需明确说明"知识库中未找到相关内容，以下为AI参考回答"
 - 回复使用中文
 """
 
@@ -149,12 +148,7 @@ async def delete_knowledge_base(kb_id: str):
 
 # ── Upload ──────────────────────────────────────────────────────
 
-@router.post("/bases/{kb_id}/upload")
-async def upload_document(kb_id: str, file: UploadFile = File(...)):
-    kb = await load_kb(kb_id)
-    if not kb:
-        raise HTTPException(404, "Knowledge base not found")
-
+async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
     if not file.filename:
         raise HTTPException(400, "No filename")
 
@@ -250,6 +244,26 @@ async def upload_document(kb_id: str, file: UploadFile = File(...)):
         "chunk_count": len(chunks),
         "file_size": len(content),
     }
+
+
+@router.post("/bases/{kb_id}/upload")
+async def upload_documents(kb_id: str, files: list[UploadFile] = File(...)):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+
+    results = []
+    errors = []
+    for file in files:
+        try:
+            result = await _process_single_upload(kb_id, file)
+            results.append(result)
+        except HTTPException as e:
+            errors.append({"filename": file.filename, "detail": e.detail})
+        except Exception as e:
+            errors.append({"filename": file.filename, "detail": str(e)})
+
+    return {"results": results, "errors": errors}
 
 
 # ── List ────────────────────────────────────────────────────────
@@ -361,6 +375,46 @@ async def search_knowledge(kb_id: str, req: KBSearchRequest):
             })
 
     return {"results": results, "total": len(results)}
+
+
+@router.get("/bases/{kb_id}/suggestions")
+async def get_suggestions(kb_id: str):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+
+    vector_store = vs_manager.get(kb_id)
+    if vector_store.total_vectors == 0:
+        return {"suggestions": []}
+
+    docs = await load_kb_docs(kb_id)
+    summaries = [d.get("summary", "") for d in docs if d.get("summary")]
+    doc_names = [d["filename"] for d in docs]
+
+    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+    from openai import OpenAI as LLMClient
+
+    try:
+        llm_client = LLMClient(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=30.0, max_retries=2)
+        context = ""
+        if summaries:
+            context = "文档概要：\n" + "\n".join(f"- {s}" for s in summaries[:5])
+        else:
+            context = "文档列表：" + "、".join(doc_names[:10])
+
+        resp = llm_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": "你是一个问题生成器。根据给出的知识库信息，生成3个用户可能会问的问题。每个问题一行，只输出问题本身，不要编号和标点前缀。问题应涵盖不同方面，简洁具体。"},
+                {"role": "user", "content": context},
+            ],
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        suggestions = [line.strip().lstrip("0123456789.-) ") for line in text.split("\n") if line.strip()]
+        return {"suggestions": suggestions[:5]}
+    except Exception as e:
+        logger.warning("Suggestion generation failed for KB %s: %s", kb_id, e)
+        return {"suggestions": []}
 
 
 # ── Conversations ──────────────────────────────────────────────

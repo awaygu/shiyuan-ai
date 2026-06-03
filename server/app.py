@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from datetime import datetime
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,7 +48,7 @@ from api.prompts import router as prompts_router
 from api.agent import router as agent_router
 from api.knowledge import router as knowledge_router
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 NEWSNOW_WAIT_TIMEOUT = 10
