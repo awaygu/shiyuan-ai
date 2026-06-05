@@ -8,6 +8,11 @@
         <span class="title">📰 识渊 · 新闻解读</span>
       </div>
       <div class="header-right">
+        <el-badge :value="store.runningTaskCount" :hidden="store.runningTaskCount === 0" :max="9">
+          <el-button text @click="store.toggleTaskPanel" class="task-btn">
+            <el-icon><List /></el-icon> 任务
+          </el-button>
+        </el-badge>
         <el-tag type="success" effect="dark" size="small">🟢 运行中</el-tag>
       </div>
     </el-header>
@@ -41,10 +46,16 @@
             <KeywordSettings @close="showKeywords = false" />
           </div>
         </transition>
+
+        <transition name="slide-right">
+          <div v-if="store.showTaskPanel" class="column column-task" :style="{ width: taskWidth + 'px', flex: 'none' }">
+            <TaskPanel @close="store.showTaskPanel = false" />
+          </div>
+        </transition>
       </div>
     </el-main>
 
-    <FloatingAgent :offset-right="showKeywords ? kwWidth + 12 : 0" />
+    <FloatingAgent :offset-right="(showKeywords ? kwWidth + 12 : 0) + (store.showTaskPanel ? taskWidth + 12 : 0)" />
   </el-container>
 </template>
 
@@ -54,6 +65,7 @@ import NewsList from '@/components/NewsList.vue'
 import NewsDetail from '@/components/NewsDetail.vue'
 import FloatingAgent from '@/components/FloatingAgent.vue'
 import KeywordSettings from '@/components/KeywordSettings.vue'
+import TaskPanel from '@/components/TaskPanel.vue'
 import { useNewsStore } from '@/stores'
 
 const store = useNewsStore()
@@ -64,6 +76,7 @@ const MIN_LEFT = 260
 
 const showKeywords = ref(false)
 const kwWidth = ref(320)
+const taskWidth = ref(340)
 
 const mainStyle = computed(() => {
   if (!store.agentDockedRight) return {}
@@ -171,6 +184,11 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+.task-btn {
+  font-size: 14px;
+  color: #6366f1;
+}
+
 .app-main {
   flex: 1;
   padding: 12px;
@@ -197,6 +215,15 @@ onBeforeUnmount(() => {
 }
 
 .column-kw {
+  background: #fff;
+  border-radius: 8px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  margin-left: 4px;
+}
+
+.column-task {
   background: #fff;
   border-radius: 8px;
   padding: 0;

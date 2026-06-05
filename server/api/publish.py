@@ -47,61 +47,112 @@ class PublishRequest(BaseModel):
     title: str | None = None
     content: str | None = None
     platform: str
+    generate_cover: bool = True
+    generate_inline_images: bool = False
 
 
 @router.post("/publish")
 async def publish_article(req: PublishRequest):
-    lock = _get_lock(req.platform)
-    if lock.locked():
-        raise HTTPException(429, f"A publish task is already running for {req.platform}")
+    from .tasks import task_manager
 
-    async with lock:
-        publisher = deps.PUBLISHERS.get(req.platform)
-        if not publisher:
-            raise HTTPException(
-                400,
-                f"Unknown platform: {req.platform}. Available: {list(deps.PUBLISHERS.keys())}",
-            )
+    publisher = deps.PUBLISHERS.get(req.platform)
+    if not publisher:
+        raise HTTPException(
+            400,
+            f"Unknown platform: {req.platform}. Available: {list(deps.PUBLISHERS.keys())}",
+        )
 
-        title = req.title
-        content = req.content
+    title = req.title
+    content = req.content
 
-        if req.article_id and (not title or not content):
-            article = deps.find_article(req.article_id)
-            if not article:
-                raise HTTPException(404, f"Article not found: {req.article_id}")
-            title = title or article.get("title", "")
-            content = content or article.get("content", "")
+    if req.article_id and (not title or not content):
+        article = deps.find_article(req.article_id)
+        if not article:
+            raise HTTPException(404, f"Article not found: {req.article_id}")
+        title = title or article.get("title", "")
+        content = content or article.get("content", "")
 
-        if not title or not content:
-            raise HTTPException(400, "title and content are required (either directly or via article_id)")
+    if not title or not content:
+        raise HTTPException(400, "title and content are required (either directly or via article_id)")
 
-        try:
-            result = await publisher.publish(title, content)
-        except Exception as e:
-            logger.error("Publish error for %s: %s", req.platform, e)
-            result = type(result).__new__(type(result))
-            result.success = False
-            result.platform = req.platform
-            result.article_title = title
-            result.error_message = str(e)
+    clean_title = title[:40] if title else "文章"
+    task = await task_manager.create_task("publish", req.platform, clean_title)
 
-        record = {
-            "article_id": req.article_id or "",
-            "platform": req.platform,
-            "success": result.success,
-            "url": result.published_url,
-            "timestamp": result.published_at.isoformat(),
-            "need_login": result.need_login,
-            "error_message": result.error_message,
-            "extra": result.extra,
-        }
+    asyncio.create_task(
+        _run_publish_task(
+            task=task,
+            publisher=publisher,
+            title=title,
+            content=content,
+            article_id=req.article_id or "",
+            generate_cover=req.generate_cover,
+            generate_inline_images=req.generate_inline_images,
+        )
+    )
 
-        async with deps.article_lock:
-            deps.publish_log.append(record)
-            await deps.save_publish_record(record)
+    return {"task_id": task.task_id, "status": "pending"}
 
-        return record
+
+async def _run_publish_task(
+    task,
+    publisher,
+    title: str,
+    content: str,
+    article_id: str,
+    generate_cover: bool,
+    generate_inline_images: bool,
+):
+    from .tasks import task_manager
+
+    async def on_progress(msg: str):
+        await task_manager.update_task(task.task_id, "running", msg)
+
+    await task_manager.update_task(task.task_id, "running", "正在发布...")
+
+    try:
+        result = await publisher.publish(
+            title, content,
+            generate_cover=generate_cover,
+            generate_inline_images=generate_inline_images,
+            on_progress=on_progress,
+        )
+    except Exception as e:
+        logger.error("Publish error for %s: %s", task.platform, e)
+        from publishers.base import PublishResult
+        result = PublishResult(
+            success=False,
+            platform=task.platform,
+            article_title=title,
+            error_message=str(e),
+        )
+
+    record = {
+        "article_id": article_id,
+        "platform": task.platform,
+        "success": result.success,
+        "url": result.published_url,
+        "timestamp": result.published_at.isoformat(),
+        "need_login": result.need_login,
+        "error_message": result.error_message,
+        "extra": result.extra,
+    }
+
+    async with deps.article_lock:
+        deps.publish_log.append(record)
+        await deps.save_publish_record(record)
+
+    if result.success:
+        await task_manager.update_task(
+            task.task_id, "completed", "发布成功", result=record,
+        )
+    else:
+        await task_manager.update_task(
+            task.task_id, "failed",
+            result.error_message or "发布失败",
+            result=record,
+            error=result.error_message,
+            need_login=result.need_login,
+        )
 
 
 @router.post("/publish/{platform}/login")

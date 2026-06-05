@@ -52,7 +52,7 @@
             class="msg-actions"
           >
             <button class="msg-action-btn" @click="copyContent(msg.content)">复制</button>
-            <el-dropdown @command="(p: string) => onPublish(msg.content, p)">
+            <el-dropdown @command="(p: string) => onKBPublishCommand(msg.content, p)">
               <button class="msg-action-btn">发布到 ▾</button>
               <template #dropdown>
                 <el-dropdown-menu>
@@ -97,15 +97,28 @@
         </button>
       </div>
     </div>
+
+    <el-dialog v-model="kbImageOptsVisible" title="AI 配图选项" width="400px" :close-on-click-modal="false">
+      <div style="margin-bottom:16px">
+        <el-switch v-model="kbImageOpts.generateCover" active-text="AI 封面图" inactive-text="" style="margin-bottom:12px" />
+        <div style="font-size:12px;color:#909399;margin-top:-8px;margin-bottom:12px">根据文章主题自动生成封面图（0.5元/张）</div>
+        <el-switch v-model="kbImageOpts.generateInlineImages" active-text="AI 正文插图" inactive-text="" />
+        <div style="font-size:12px;color:#909399;margin-top:-8px">为每个章节自动生成配图（耗时较长）</div>
+      </div>
+      <template #footer>
+        <el-button @click="kbImageOptsVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmKBPublishWithImages">确认发布</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, nextTick, watch, reactive } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import { useNewsStore } from '@/stores'
-import { kbStreamChat, kbStreamGenerate, fetchKBSuggestions, publishByContent, loginPlatform } from '@/api'
+import { kbStreamChat, kbStreamGenerate, fetchKBSuggestions, publishByContent } from '@/api'
 import type { StyleType, KBSource, KBMessage } from '@/types'
 import { marked } from 'marked'
 
@@ -331,37 +344,46 @@ const platformLabels: Record<string, string> = {
   douyin: '抖音',
 }
 
-async function onPublish(content: string, platform: string) {
+const kbImageOptsVisible = ref(false)
+const kbPendingContent = ref('')
+const kbPendingPlatform = ref('')
+const kbImageOpts = reactive({
+  generateCover: true,
+  generateInlineImages: false,
+})
+
+function onKBPublishCommand(content: string, platform: string) {
+  if (platform === 'wechat_mp') {
+    kbPendingContent.value = content
+    kbPendingPlatform.value = platform
+    kbImageOpts.generateCover = true
+    kbImageOpts.generateInlineImages = false
+    kbImageOptsVisible.value = true
+  } else {
+    onPublish(content, platform)
+  }
+}
+
+async function confirmKBPublishWithImages() {
+  const content = kbPendingContent.value
+  const platform = kbPendingPlatform.value
+  kbImageOptsVisible.value = false
+  await onPublish(content, platform, {
+    generate_cover: kbImageOpts.generateCover,
+    generate_inline_images: kbImageOpts.generateInlineImages,
+  })
+}
+
+async function onPublish(content: string, platform: string, imageOptions?: { generate_cover?: boolean; generate_inline_images?: boolean }) {
   const label = platformLabels[platform] || platform
   const title = content.split('\n').find(l => l.trim() && !l.trim().startsWith('#'))?.trim()?.slice(0, 30) || '知识库文章'
 
   try {
-    const res = await publishByContent(title, content, platform)
-    if (res.need_login) {
-      try {
-        const loginHint = res.error_message || `${label}需要重新登录，请在弹出的浏览器窗口中扫码。`
-        await ElMessageBox.confirm(loginHint, '需要登录', { confirmButtonText: '开始登录', cancelButtonText: '取消', type: 'warning' })
-        ElMessage.info('正在打开登录窗口，请扫码...')
-        const loginRes = await loginPlatform(platform)
-        if (loginRes.success) {
-          ElMessage.success('登录成功，继续发布...')
-          const res2 = await publishByContent(title, content, platform)
-          if (res2.success) {
-            ElMessage.success(`已发布到${label}`)
-          } else {
-            ElMessage.error(`发布失败：${res2.error_message || '未知错误'}`)
-          }
-        } else {
-          ElMessage.error(loginRes.error_message || '登录失败，请重试')
-        }
-      } catch {
-        return
-      }
-    } else if (res.success) {
-      ElMessage.success(`已发布到${label}`)
-    } else {
-      ElMessage.error(`发布失败：${res.error_message || '未知错误'}`)
-    }
+    const res = await publishByContent(title, content, platform, imageOptions)
+    store.startTaskStream()
+    store.showTaskPanel = true
+    await store.loadTasks()
+    ElMessage.success(`已提交发布到${label}，请在任务列表中查看进度`)
   } catch (e: any) {
     ElMessage.error(`发布失败：${e.message || '未知错误'}`)
   }

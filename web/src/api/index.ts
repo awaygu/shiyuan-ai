@@ -1,7 +1,7 @@
 /** Backend API request wrappers. */
 
 import axios from 'axios'
-import type { NewsItem, Article, PublishRecord, StyleType, KBDoc, KBSearchResult, KnowledgeBase, KBConversation, KBMessage } from '@/types'
+import type { NewsItem, Article, PublishRecord, StyleType, KBDoc, KBSearchResult, KnowledgeBase, KBConversation, KBMessage, AsyncTask } from '@/types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -119,14 +119,29 @@ export async function fetchArticles(): Promise<Article[]> {
 }
 
 /** Publish an article to a platform (by article_id or content). */
-export async function publishArticle(articleId: string, platform: string): Promise<PublishRecord & { need_login?: boolean }> {
-  const res = await api.post('/publish', { article_id: articleId, platform }, { timeout: 120000 })
+export async function publishArticle(
+  articleId: string,
+  platform: string,
+  options?: { generate_cover?: boolean; generate_inline_images?: boolean }
+): Promise<PublishRecord & { need_login?: boolean }> {
+  const body: Record<string, any> = { article_id: articleId, platform, generate_cover: true, generate_inline_images: false }
+  if (options?.generate_cover !== undefined) body.generate_cover = options.generate_cover
+  if (options?.generate_inline_images !== undefined) body.generate_inline_images = options.generate_inline_images
+  const res = await api.post('/publish', body, { timeout: 300000 })
   return res.data
 }
 
 /** Publish by content (for KB articles). */
-export async function publishByContent(title: string, content: string, platform: string): Promise<PublishRecord & { need_login?: boolean }> {
-  const res = await api.post('/publish', { title, content, platform }, { timeout: 120000 })
+export async function publishByContent(
+  title: string,
+  content: string,
+  platform: string,
+  options?: { generate_cover?: boolean; generate_inline_images?: boolean }
+): Promise<PublishRecord & { need_login?: boolean }> {
+  const body: Record<string, any> = { title, content, platform, generate_cover: true, generate_inline_images: false }
+  if (options?.generate_cover !== undefined) body.generate_cover = options.generate_cover
+  if (options?.generate_inline_images !== undefined) body.generate_inline_images = options.generate_inline_images
+  const res = await api.post('/publish', body, { timeout: 300000 })
   return res.data
 }
 
@@ -500,4 +515,68 @@ export async function fetchKeywordStatus(): Promise<{ enabled: boolean; groups: 
 export async function updateKeywordGroups(groups: KeywordGroup[]): Promise<{ enabled: boolean; total_rules: number; groups: KeywordGroup[] }> {
   const res = await api.put('/keywords', { groups })
   return res.data
+}
+
+// ── Async Tasks ──────────────────────────────────────────────
+
+export async function fetchTasks(): Promise<AsyncTask[]> {
+  const res = await api.get('/tasks')
+  return res.data.tasks
+}
+
+export async function clearDoneTasks(): Promise<AsyncTask[]> {
+  const res = await api.delete('/tasks')
+  return res.data.tasks
+}
+
+export function streamTaskUpdates(callbacks: {
+  onTaskUpdate: (task: AsyncTask) => void
+  onError: (error: string) => void
+}) {
+  const base = import.meta.env.DEV ? 'http://localhost:8000' : ''
+  const url = base + '/api/tasks/stream'
+
+  let stopped = false
+
+  ;(async () => {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) {
+        callbacks.onError(`HTTP ${response.status}`)
+        return
+      }
+      const reader = response.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (!stopped) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() || ''
+
+        for (const part of parts) {
+          const lines = part.split('\n')
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            const payload = line.slice(6)
+            try {
+              const parsed = JSON.parse(payload)
+              if (parsed.type === 'task_update') {
+                callbacks.onTaskUpdate(parsed as AsyncTask)
+              }
+            } catch {
+              // skip
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      if (!stopped) callbacks.onError(e.message || 'Stream error')
+    }
+  })()
+
+  return () => { stopped = true }
 }

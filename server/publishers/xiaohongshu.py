@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from .base import BrowserPublisher, PublishResult, NeedLoginError, random_delay
 
 logger = logging.getLogger(__name__)
+
+DEBUG_DIR = Path(__file__).resolve().parent.parent / "debug_screenshots"
+DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class XiaohongshuPublisher(BrowserPublisher):
@@ -42,11 +46,31 @@ class XiaohongshuPublisher(BrowserPublisher):
         if "login" in page.url.lower():
             raise NeedLoginError("小红书登录已过期，请重新扫码登录")
 
+        await page.screenshot(path=str(DEBUG_DIR / "xhs_publish_page.png"), full_page=True)
+        html = await page.content()
+        (DEBUG_DIR / "xhs_publish_page.html").write_text(html, encoding="utf-8")
+        logger.info("Debug screenshot saved to %s", DEBUG_DIR)
+
+        image_text_tab = await page.query_selector(
+            ".creator-tab:has-text('上传图文'), .creator-tab:has-text('图文')"
+        )
+        if image_text_tab:
+            await image_text_tab.click()
+            await random_delay(2, 4)
+            await page.screenshot(path=str(DEBUG_DIR / "xhs_image_text_tab.png"), full_page=True)
+        else:
+            logger.warning("Image/text tab not found for xiaohongshu")
+
         title_input = await page.query_selector(
-            "input[placeholder='填写标题'], input[placeholder*='标题'], .c-input_inner"
+            ".draft-title-box input, .draft-title-box [contenteditable], "
+            "input[placeholder='填写标题'], input[placeholder*='标题'], "
+            ".c-input_inner, input[maxlength='20']"
         )
         if not title_input:
-            title_input = await page.query_selector("input[maxlength='20']")
+            title_input = await page.query_selector(
+                "#title, [class*='title'] input, input[class*='title'], "
+                "[class*='title-input'] input"
+            )
         if title_input:
             await title_input.click()
             await random_delay(0.5, 1)
@@ -55,7 +79,10 @@ class XiaohongshuPublisher(BrowserPublisher):
         else:
             logger.warning("Title input not found for xiaohongshu")
 
-        editor = await page.query_selector(".ql-editor, [contenteditable='true'], .ce-editor")
+        editor = await page.query_selector(
+            ".ql-editor, [contenteditable='true'], .ce-editor, "
+            "[class*='editor'] [contenteditable], .draft-editor"
+        )
         if editor:
             await editor.click()
             await random_delay(0.5, 1)

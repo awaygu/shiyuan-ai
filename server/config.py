@@ -84,6 +84,10 @@ PUBLISH_TIMEOUT = int(os.getenv("PUBLISH_TIMEOUT", "120"))
 # DashScope
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
 
+# Image Generation
+IMAGE_GEN_ENABLED = os.getenv("IMAGE_GEN_ENABLED", "true").lower() == "true"
+IMAGE_GEN_MODEL = os.getenv("IMAGE_GEN_MODEL", "qwen-image-2.0-pro")
+
 # Knowledge Base
 KB_CHUNK_SIZE = int(os.getenv("KB_CHUNK_SIZE", "500"))
 KB_CHUNK_OVERLAP = int(os.getenv("KB_CHUNK_OVERLAP", "50"))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -82,6 +83,23 @@ class WechatTokenManager:
             data = upload_resp.json()
             if "url" not in data:
                 raise WechatApiError(data.get("errcode", 0), data.get("errmsg", "upload failed"))
+            return data["url"]
+
+    async def upload_image_from_bytes(
+        self, image_bytes: bytes, content_type: str = "image/png"
+    ) -> str:
+        token = await self.get_token()
+        ext = "png" if "png" in content_type else "jpg"
+        filename = f"image.{ext}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            upload_resp = await client.post(
+                f"{WECHAT_API_BASE}/cgi-bin/media/uploadimg",
+                params={"access_token": token},
+                files={"media": (filename, image_bytes, content_type)},
+            )
+            data = upload_resp.json()
+            if "url" not in data:
+                raise WechatApiError(data.get("errcode", 0), data.get("errmsg", "upload from bytes failed"))
             return data["url"]
 
 
@@ -179,20 +197,22 @@ class WechatMpPublisher(BasePublisher):
         except Exception as e:
             raise WechatApiError(-1, f"获取 access_token 失败: {e}")
 
-    async def upload_thumb(self, token: str) -> str:
+    async def upload_thumb(self, token: str, image_bytes: bytes | None = None) -> str:
         from io import BytesIO
         from PIL import Image
 
-        img = Image.new("RGB", (900, 383), color=(99, 102, 241))
-        buf = BytesIO()
-        img.save(buf, format="JPEG")
-        buf.seek(0)
+        if image_bytes is None:
+            img = Image.new("RGB", (900, 383), color=(99, 102, 241))
+            buf = BytesIO()
+            img.save(buf, format="JPEG")
+            buf.seek(0)
+            image_bytes = buf.read()
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             upload_resp = await client.post(
                 f"{WECHAT_API_BASE}/cgi-bin/material/add_material",
                 params={"access_token": token, "type": "image"},
-                files={"media": ("thumb.jpg", buf, "image/jpeg")},
+                files={"media": ("thumb.jpg", image_bytes, "image/jpeg")},
             )
             data = upload_resp.json()
             if "media_id" not in data:
@@ -200,6 +220,14 @@ class WechatMpPublisher(BasePublisher):
             return data["media_id"]
 
     async def publish(self, title: str, content: str, **kwargs) -> PublishResult:
+        generate_cover = kwargs.get("generate_cover", True)
+        generate_inline_images = kwargs.get("generate_inline_images", False)
+        on_progress = kwargs.get("on_progress")
+
+        async def _progress(msg: str):
+            if on_progress:
+                await on_progress(msg)
+
         if not self.app_id or not self.app_secret:
             return PublishResult(
                 success=False,
@@ -209,6 +237,7 @@ class WechatMpPublisher(BasePublisher):
                 error_message="WECHAT_APP_ID or WECHAT_APP_SECRET not configured",
             )
 
+        await _progress("正在获取 access_token...")
         try:
             token = await self.token_manager.get_token()
         except WechatApiError as e:
@@ -229,16 +258,74 @@ class WechatMpPublisher(BasePublisher):
                 error_message=f"Failed to get access_token: {e}",
             )
 
+        thumb_media_id = ""
+        if generate_cover:
+            try:
+                from config import IMAGE_GEN_ENABLED, DASHSCOPE_API_KEY, IMAGE_GEN_MODEL
+                if IMAGE_GEN_ENABLED and DASHSCOPE_API_KEY:
+                    from core.image_generator import ImageGenerator
+                    gen = ImageGenerator(DASHSCOPE_API_KEY, IMAGE_GEN_MODEL)
+                    await _progress("正在生成 AI 封面图...")
+                    cover_bytes = await gen.generate_cover_image(title, content)
+                    await _progress("正在上传封面图到微信...")
+                    thumb_media_id = await self.upload_thumb(token, image_bytes=cover_bytes)
+                    logger.info("AI cover image uploaded: media_id=%s", thumb_media_id)
+                else:
+                    logger.info("Image generation disabled or no API key, using placeholder cover")
+                    thumb_media_id = await self.upload_thumb(token)
+            except Exception as e:
+                logger.warning("AI cover image generation failed: %s, using placeholder", e)
+                thumb_media_id = await self.upload_thumb(token)
+        else:
+            thumb_media_id = await self.upload_thumb(token)
+
+        await _progress("正在转换文章格式...")
         html_content = markdown_to_wechat_html(content)
 
         img_pattern = re.compile(r'!\[.*?\]\((https?://[^\s)]+)\)')
         img_urls = img_pattern.findall(content)
+        if img_urls:
+            await _progress("正在转存文章图片...")
         for img_url in img_urls:
             try:
                 wechat_url = await self.token_manager.upload_image(img_url)
                 html_content = html_content.replace(img_url, wechat_url)
             except Exception as e:
                 logger.warning("Failed to upload image %s: %s", img_url, e)
+
+        if generate_inline_images:
+            try:
+                from config import IMAGE_GEN_ENABLED, DASHSCOPE_API_KEY, IMAGE_GEN_MODEL
+                if IMAGE_GEN_ENABLED and DASHSCOPE_API_KEY:
+                    from core.image_generator import ImageGenerator, split_by_headings
+                    gen = ImageGenerator(DASHSCOPE_API_KEY, IMAGE_GEN_MODEL)
+                    sections = split_by_headings(content)
+                    if sections:
+                        await _progress(f"正在生成 {len(sections)} 张正文插图...")
+                        tasks = [
+                            gen.generate_section_image(s.title, s.text)
+                            for s in sections
+                        ]
+                        images = await asyncio.gather(*tasks, return_exceptions=True)
+
+                        heading_pattern = re.compile(r'^(<h[23]>.*?</h[23]>)', re.MULTILINE)
+                        parts = heading_pattern.split(html_content)
+                        section_idx = 0
+                        new_parts: list[str] = []
+                        for part in parts:
+                            new_parts.append(part)
+                            if heading_pattern.match(part) and section_idx < len(images):
+                                img = images[section_idx]
+                                if not isinstance(img, Exception):
+                                    try:
+                                        wechat_url = await self.token_manager.upload_image_from_bytes(img)
+                                        new_parts.append(f'<p><img src="{wechat_url}" style="max-width:100%;border-radius:8px;margin:8px 0;"/></p>')
+                                    except Exception as e:
+                                        logger.warning("Failed to upload section image: %s", e)
+                                section_idx += 1
+                        html_content = "".join(new_parts)
+            except Exception as e:
+                logger.warning("AI inline images generation failed: %s", e)
 
         digest = content[:120].replace("\n", " ").strip()
 
@@ -251,12 +338,7 @@ class WechatMpPublisher(BasePublisher):
                 encoded = clean_title.encode("utf-8")
             clean_title += "…"
 
-        thumb_media_id = ""
-        try:
-            thumb_media_id = await self.upload_thumb(token)
-            logger.info("Uploaded thumb image: media_id=%s", thumb_media_id)
-        except Exception as e:
-            logger.warning("Failed to upload thumb image: %s", e)
+        await _progress("正在创建微信草稿...")
 
         draft_body = {
             "articles": [

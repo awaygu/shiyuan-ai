@@ -147,3 +147,17 @@ export interface KBMessage {
   sources: KBSource[]
   created_at: string
 }
+
+export interface AsyncTask {
+  task_id: string
+  task_type: string
+  platform: string
+  title: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: string
+  created_at: string
+  updated_at: string
+  result?: Record<string, any>
+  error?: string
+  need_login?: boolean
+}

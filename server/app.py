@@ -47,6 +47,7 @@ from api.keywords import router as keywords_router
 from api.prompts import router as prompts_router
 from api.agent import router as agent_router
 from api.knowledge import router as knowledge_router
+from api.tasks import router as tasks_router
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -148,9 +149,10 @@ app.include_router(keywords_router)
 app.include_router(prompts_router)
 app.include_router(agent_router)
 app.include_router(knowledge_router)
+app.include_router(tasks_router)
 
 
 if __name__ == "__main__":
     import uvicorn
     from config import HOST, PORT
-    uvicorn.run("app:app", host=HOST, port=PORT, reload=True)
+    uvicorn.run("app:app", host=HOST, port=PORT, reload=True, loop="asyncio")

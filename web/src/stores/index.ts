@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { NewsItem, Article, PublishRecord, StyleType, KBDoc, KnowledgeBase, KBConversation, KBMessage } from '@/types'
+import type { NewsItem, Article, PublishRecord, StyleType, KBDoc, KnowledgeBase, KBConversation, KBMessage, AsyncTask } from '@/types'
 import type { KeywordGroup } from '@/api'
 import {
   fetchNews,
@@ -31,6 +31,9 @@ import {
   saveKBMessage,
   fetchKeywordStatus,
   updateKeywordGroups as apiUpdateKeywords,
+  fetchTasks,
+  clearDoneTasks,
+  streamTaskUpdates,
 } from '@/api'
 
 export const useNewsStore = defineStore('news', () => {
@@ -148,10 +151,12 @@ export const useNewsStore = defineStore('news', () => {
     }
   }
 
-  async function publish(articleId: string, platform: string): Promise<PublishRecord> {
-    const record = await publishArticle(articleId, platform)
-    publishLog.value.push(record)
-    return record
+  async function publish(articleId: string, platform: string, imageOptions?: { generate_cover?: boolean; generate_inline_images?: boolean }): Promise<{ task_id: string; status: string }> {
+    const res = await publishArticle(articleId, platform, imageOptions)
+    startTaskStream()
+    showTaskPanel.value = true
+    await loadTasks()
+    return res
   }
 
   async function loadArticles() {
@@ -228,6 +233,51 @@ export const useNewsStore = defineStore('news', () => {
       kwLoading.value = false
     }
   }
+
+  // ── Async Tasks ────────────────────────────────────────────────
+
+  const tasks = ref<AsyncTask[]>([])
+  const showTaskPanel = ref(false)
+  let _stopTaskStream: (() => void) | null = null
+
+  async function loadTasks() {
+    tasks.value = await fetchTasks()
+  }
+
+  function startTaskStream() {
+    if (_stopTaskStream) return
+    _stopTaskStream = streamTaskUpdates({
+      onTaskUpdate(taskUpdate) {
+        const idx = tasks.value.findIndex(t => t.task_id === taskUpdate.task_id)
+        if (idx >= 0) {
+          tasks.value[idx] = taskUpdate
+        } else {
+          tasks.value.unshift(taskUpdate)
+        }
+      },
+      onError() {},
+    })
+  }
+
+  function stopTaskStream() {
+    if (_stopTaskStream) {
+      _stopTaskStream()
+      _stopTaskStream = null
+    }
+  }
+
+  async function clearDoneTasksAction() {
+    tasks.value = await clearDoneTasks()
+  }
+
+  function toggleTaskPanel() {
+    showTaskPanel.value = !showTaskPanel.value
+    if (showTaskPanel.value) {
+      startTaskStream()
+    }
+  }
+
+  const runningTaskCount = computed(() => tasks.value.filter(t => t.status === 'pending' || t.status === 'running').length)
 
   // ── Knowledge Base List ────────────────────────────────────────
 
@@ -447,5 +497,14 @@ export const useNewsStore = defineStore('news', () => {
     kwLoading,
     loadKeywords,
     saveKeywords,
+
+    tasks,
+    showTaskPanel,
+    loadTasks,
+    startTaskStream,
+    stopTaskStream,
+    clearDoneTasksAction,
+    toggleTaskPanel,
+    runningTaskCount,
   }
 })

@@ -38,6 +38,13 @@
           <el-icon class="edit-hint" @click="startEditDesc"><Edit /></el-icon>
         </template>
       </div>
+      <div class="header-right">
+        <el-badge :value="store.runningTaskCount" :hidden="store.runningTaskCount === 0" :max="9">
+          <el-button text @click="store.toggleTaskPanel" class="task-btn">
+            <el-icon><List /></el-icon> 任务
+          </el-button>
+        </el-badge>
+      </div>
     </div>
 
     <div class="kb-body">
@@ -66,6 +73,12 @@
       <div class="kb-actions" :style="{ width: actionsWidth + 'px' }">
         <KBActionPanel :kb-id="kbId" @generate="onGenerate" />
       </div>
+
+      <transition name="slide">
+        <div v-if="store.showTaskPanel" class="kb-task-panel" :style="{ width: taskWidth + 'px' }">
+          <TaskPanel @close="store.showTaskPanel = false" />
+        </div>
+      </transition>
     </div>
   </div>
 </template>
@@ -75,6 +88,7 @@ import { onMounted, ref, watch, nextTick, onUnmounted } from 'vue'
 import KBFilePanel from '@/components/KBFilePanel.vue'
 import KBChatPanel from '@/components/KBChatPanel.vue'
 import KBActionPanel from '@/components/KBActionPanel.vue'
+import TaskPanel from '@/components/TaskPanel.vue'
 import { useNewsStore } from '@/stores'
 import type { StyleType } from '@/types'
 import { getKbIcon } from '@/types'
@@ -88,6 +102,7 @@ const showSidebar = ref(true)
 
 const sidebarWidth = ref(450)
 const actionsWidth = ref(280)
+const taskWidth = ref(340)
 const resizing = ref<'left' | 'right' | null>(null)
 const resizeStartX = ref(0)
 const resizeStartWidth = ref(0)
@@ -396,5 +411,23 @@ watch(() => props.kbId, (newId) => {
   background: #fff;
   border-left: 1px solid #eef0f5;
   overflow: hidden;
+}
+
+.kb-task-panel {
+  flex: none;
+  background: #fff;
+  border-left: 1px solid #eef0f5;
+  overflow: hidden;
+}
+
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+.task-btn {
+  font-size: 14px;
+  color: #6366f1;
 }
 </style>

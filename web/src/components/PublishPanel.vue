@@ -20,8 +20,7 @@
 
             <div class="art-actions">
               <el-dropdown
-                v-if="!publishingIds.includes(art.article_id)"
-                @command="(platform: string) => handlePublish(art.article_id, platform)"
+                @command="(platform: string) => onPublishCommand(art.article_id, platform)"
               >
                 <el-button type="primary" size="small">
                   发布到 <el-icon><ArrowDown /></el-icon>
@@ -40,9 +39,6 @@
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
-              <el-tag v-else type="warning" effect="dark" size="small">
-                <el-icon class="is-loading"><Loading /></el-icon> 发布中...
-              </el-tag>
             </div>
           </div>
         </div>
@@ -77,20 +73,61 @@
         </el-timeline>
       </el-tab-pane>
     </el-tabs>
+
+    <el-dialog v-model="imageOptsVisible" title="AI 配图选项" width="400px" :close-on-click-modal="false">
+      <div style="margin-bottom:16px">
+        <el-switch v-model="imageOpts.generateCover" active-text="AI 封面图" inactive-text="" style="margin-bottom:12px" />
+        <div style="font-size:12px;color:#909399;margin-top:-8px;margin-bottom:12px">根据文章主题自动生成封面图（0.5元/张）</div>
+        <el-switch v-model="imageOpts.generateInlineImages" active-text="AI 正文插图" inactive-text="" />
+        <div style="font-size:12px;color:#909399;margin-top:-8px">为每个章节自动生成配图（耗时较长）</div>
+      </div>
+      <template #footer>
+        <el-button @click="imageOptsVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmPublishWithImages">确认发布</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, onMounted, reactive } from 'vue'
+import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import { useNewsStore } from '@/stores'
 import { STYLE_LABELS, PLATFORM_LABELS } from '@/types'
-import { loginPlatform } from '@/api'
 
 const store = useNewsStore()
 const activeTab = ref('articles')
-const publishingIds = ref<string[]>([])
+
+const imageOptsVisible = ref(false)
+const pendingPublishId = ref('')
+const pendingPublishPlatform = ref('')
+const imageOpts = reactive({
+  generateCover: true,
+  generateInlineImages: false,
+})
+
+function onPublishCommand(articleId: string, platform: string) {
+  if (platform === 'wechat_mp') {
+    pendingPublishId.value = articleId
+    pendingPublishPlatform.value = platform
+    imageOpts.generateCover = true
+    imageOpts.generateInlineImages = false
+    imageOptsVisible.value = true
+  } else {
+    handlePublish(articleId, platform)
+  }
+}
+
+async function confirmPublishWithImages() {
+  const articleId = pendingPublishId.value
+  const platform = pendingPublishPlatform.value
+  imageOptsVisible.value = false
+  await handlePublish(articleId, platform, {
+    generate_cover: imageOpts.generateCover,
+    generate_inline_images: imageOpts.generateInlineImages,
+  })
+}
 
 function getStyleLabel(style: string): string {
   return (STYLE_LABELS as any)[style] ?? style
@@ -115,39 +152,17 @@ function renderMarkdown(text: string): string {
   return marked.parse(text, { async: false }) as string
 }
 
-async function handlePublish(articleId: string, platform: string) {
-  publishingIds.value.push(articleId)
+async function handlePublish(
+  articleId: string,
+  platform: string,
+  imageOptions?: { generate_cover?: boolean; generate_inline_images?: boolean }
+) {
   const label = getPlatformLabel(platform)
   try {
-    const res = await store.publish(articleId, platform)
-    if (res.need_login) {
-      try {
-        const loginHint = res.error_message || `${label}需要重新登录，请在弹出的浏览器窗口中扫码。`
-        await ElMessageBox.confirm(loginHint, '需要登录', { confirmButtonText: '开始登录', cancelButtonText: '取消', type: 'warning' }
-        )
-        ElMessage.info('正在登录，请稍候...')
-        const loginRes = await loginPlatform(platform)
-        if (loginRes.success) {
-          ElMessage.success('登录成功，继续发布...')
-          const res2 = await store.publish(articleId, platform)
-          if (res2.success) {
-            ElMessage.success(`已发布到${label}`)
-          } else {
-            ElMessage.error(`发布失败：${res2.error_message || '未知错误'}`)
-          }
-        } else {
-          ElMessage.error(loginRes.error_message || '登录失败，请重试')
-        }
-      } catch {
-        return
-      }
-    } else {
-      ElMessage.success(`已发布到 ${label}`)
-    }
+    await store.publish(articleId, platform, imageOptions)
+    ElMessage.success(`已提交发布到${label}，请在任务列表中查看进度`)
   } catch (e: any) {
     ElMessage.error(`发布失败：${e.message}`)
-  } finally {
-    publishingIds.value = publishingIds.value.filter((id) => id !== articleId)
   }
 }
 
