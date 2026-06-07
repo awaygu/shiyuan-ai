@@ -40,3 +40,8 @@ server/uploads/
 
 # 浏览器 cookies
 server/cookies/*.json
+
+# Specs文档
+specs/
+specs/*.json
+specs/*.md

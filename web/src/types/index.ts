@@ -52,6 +52,14 @@ export const SOURCE_LABELS: Record<string, string> = {
 
 export const VIDEO_SOURCES = new Set(['douyin'])
 
+// 已知不支持 iframe 嵌入的源，直接显示"新窗口打开"
+export const NO_IFRAME_SOURCES = new Set([
+  'weibo',          // 微博：X-Frame-Options
+  'toutiao',        // 今日头条：CSP 限制
+  'thepaper',       // 澎湃新闻：X-Frame-Options
+  'cankaoxiaoxi',   // 参考消息：不允许嵌入
+])
+
 export const PLATFORM_LABELS: Record<string, string> = {
   xiaohongshu: '小红书',
   wechat_mp: '微信公众号',

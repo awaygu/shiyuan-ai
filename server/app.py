@@ -7,7 +7,7 @@ import logging
 import sys
 from datetime import datetime
 
-if sys.platform == "win32":
+if sys.platform == "win32" and sys.version_info < (3, 13):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from fastapi import FastAPI

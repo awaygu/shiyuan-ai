@@ -139,19 +139,6 @@ class NewsNowCrawler(BaseCrawler):
             seen.add(dedup_key)
 
             item_url = entry.get("url", "")
-            mobile_url = entry.get("mobileUrl", "")
-
-            if self.platform_id == "toutiao" and item_url:
-                import re
-                tid_match = re.search(r"/(\d+)/?", item_url)
-                if tid_match:
-                    item_url = f"https://www.toutiao.com/article/{tid_match.group(1)}/"
-
-            if self.platform_id == "toutiao" and mobile_url:
-                import re
-                tid_match = re.search(r"/(\d+)/?", mobile_url)
-                if tid_match:
-                    mobile_url = f"https://www.toutiao.com/article/{tid_match.group(1)}/"
 
             pub_ts = entry.get("pubDate")
             if pub_ts and isinstance(pub_ts, (int, float)):
@@ -164,10 +151,9 @@ class NewsNowCrawler(BaseCrawler):
                 title=title,
                 summary=title[:200],
                 source=self.platform_id,
-                url=mobile_url or item_url,
+                url=item_url,
                 published_at=published_at,
                 media_type=PLATFORM_CONFIG[self.platform_id].get("media_type", "article"),
-                extra={"original_url": item_url},
             ))
 
         return items if items else self._mock_fallback()

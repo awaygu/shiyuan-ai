@@ -96,3 +96,9 @@ KB_EMBEDDING_DIM = int(os.getenv("KB_EMBEDDING_DIM", "1024"))
 KB_EMBEDDING_MODEL = os.getenv("KB_EMBEDDING_MODEL", "text-embedding-v4")
 KB_VISION_MODEL = os.getenv("KB_VISION_MODEL", "qwen-vl-ocr-latest")
 KB_VISION_BASE_URL = os.getenv("KB_VISION_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+
+# Web Search
+WEB_SEARCH_ENABLED = os.getenv("WEB_SEARCH_ENABLED", "false").lower() == "true"
+WEB_SEARCH_ENGINE = os.getenv("WEB_SEARCH_ENGINE", "tavily")  # kimi / tavily
+MOONSHOT_API_KEY = os.getenv("MOONSHOT_API_KEY", "")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")

@@ -536,9 +536,9 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
         llm = ChatOpenAI(
             model="deepseek-chat",
             temperature=0.7,
-            openai_api_key=LLM_API_KEY,
-            openai_api_base=LLM_BASE_URL,
-            request_timeout=120,
+            api_key=LLM_API_KEY,
+            base_url=LLM_BASE_URL,
+            timeout=120,
             max_retries=2,
         )
 
@@ -652,9 +652,9 @@ async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
         llm = ChatOpenAI(
             model="deepseek-chat",
             temperature=0.7,
-            openai_api_key=LLM_API_KEY,
-            openai_api_base=LLM_BASE_URL,
-            request_timeout=120,
+            api_key=LLM_API_KEY,
+            base_url=LLM_BASE_URL,
+            timeout=120,
             max_retries=2,
         )
 

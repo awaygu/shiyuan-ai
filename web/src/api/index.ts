@@ -241,8 +241,10 @@ async function consumeSSE(path: string, body: Record<string, any>, callbacks: St
 }
 
 /** Stream chat interpretation. */
-export function streamChat(message: string, newsIds: string[], callbacks: StreamCallbacks) {
-  return consumeSSE('/api/chat/stream', { message, news_ids: newsIds }, callbacks)
+export function streamChat(message: string, newsIds: string[], callbacks: StreamCallbacks, webSearch = false) {
+  const body: Record<string, any> = { message, news_ids: newsIds }
+  if (webSearch) body.web_search = true
+  return consumeSSE('/api/chat/stream', body, callbacks)
 }
 
 /** Stream article generation. */
@@ -314,9 +316,10 @@ export interface AgentStreamCallbacks extends StreamCallbacks {
 }
 
 /** Stream agent chat (general chat with action detection). */
-export function streamAgentChat(message: string, newsIds: string[], callbacks: AgentStreamCallbacks, currentNewsId?: string) {
+export function streamAgentChat(message: string, newsIds: string[], callbacks: AgentStreamCallbacks, currentNewsId?: string, webSearch = false) {
   const body: Record<string, any> = { message, news_ids: newsIds }
   if (currentNewsId) body.current_news_id = currentNewsId
+  if (webSearch) body.web_search = true
   return consumeAgentSSE('/api/agent/chat/stream', body, callbacks)
 }
 

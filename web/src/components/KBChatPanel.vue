@@ -115,7 +115,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick, watch, reactive } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import { useNewsStore } from '@/stores'
 import { kbStreamChat, kbStreamGenerate, fetchKBSuggestions, publishByContent } from '@/api'

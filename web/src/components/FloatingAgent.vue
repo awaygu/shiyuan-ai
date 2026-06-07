@@ -162,6 +162,17 @@
       </div>
       <!-- Input area -->
       <div class="input-area">
+        <button
+          class="web-search-btn"
+          :class="{ active: webSearchEnabled }"
+          :title="webSearchEnabled ? '联网搜索已开启' : '开启联网搜索'"
+          @click="webSearchEnabled = !webSearchEnabled"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </button>
         <el-input
           v-model="chatMessage"
           type="textarea"
@@ -238,6 +249,7 @@ watch([dockedRight, panelW], () => {
 const messagesRef = ref<HTMLElement | null>(null)
 const chatMessage = ref('')
 const generating = ref(false)
+const webSearchEnabled = ref(false)
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -729,7 +741,7 @@ async function sendChat() {
     onError(err) {
       pushAssistantError(currentMsgIdx, `请求失败：${err}`)
     },
-  }, currentNewsId)
+  }, currentNewsId, webSearchEnabled.value)
 }
 
 // ── Drag ────────────────────────────────────────────────────
@@ -1288,6 +1300,37 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   padding: 4px 4px 4px 2px;
   transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.web-search-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s;
+  align-self: flex-end;
+  margin-bottom: 2px;
+}
+
+.web-search-btn:hover {
+  background: #e0e7ff;
+  color: #6366f1;
+}
+
+.web-search-btn.active {
+  background: #6366f1;
+  color: #fff;
+}
+
+.web-search-btn.active:hover {
+  background: #4f46e5;
 }
 
 .input-area:focus-within {

@@ -47,6 +47,7 @@ AGENT_SYSTEM_PROMPT = """\
 6. **每日简报** — 使用 get_briefing_data 工具获取新闻数据后生成简报
 7. **执行操作** — 使用 refresh_news / refresh_source 工具刷新新闻数据
 8. **知识库检索** — 使用 search_knowledge_base 工具搜索用户上传的知识库文档，获取相关文档片段作为参考
+9. **联网搜索** — 使用 web_search 工具搜索互联网获取最新信息。当本地新闻库中没有相关信息、或用户询问实时/最新数据时，优先使用此工具
 
 ## 生成文章的风格指南
 
@@ -145,6 +146,7 @@ TOOL_DISPLAY_NAMES = {
     "get_news_content": "获取新闻内容",
     "get_briefing_data": "获取简报数据",
     "search_knowledge_base": "搜索知识库",
+    "web_search": "联网搜索",
 }
 
 
@@ -341,7 +343,15 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         from routers.knowledge import kb_search_internal
         return await kb_search_internal(query, top_k)
 
-    return [refresh_news, refresh_source, get_trends, search_news, compare_sources, get_news_content, get_briefing_data, search_knowledge_base]
+    tools_list = [refresh_news, refresh_source, get_trends, search_news, compare_sources, get_news_content, get_briefing_data, search_knowledge_base]
+
+    # 联网搜索工具（根据 WEB_SEARCH_ENGINE 配置选择引擎）
+    from tools.web_search import get_web_search_tool
+    web_search_tool = get_web_search_tool()
+    if web_search_tool:
+        tools_list.append(web_search_tool)
+
+    return tools_list
 
 
 # ── Trends (standalone endpoint for action bar) ────────────────
@@ -541,6 +551,7 @@ class AgentChatRequest(BaseModel):
     message: str
     news_ids: list[str] = Field(default_factory=list)
     current_news_id: str | None = None
+    web_search: bool = False
 
 
 @router.post("/chat/stream")
@@ -555,9 +566,9 @@ async def agent_chat_stream(req: AgentChatRequest):
     agent_llm = ChatOpenAI(
         model="deepseek-chat",
         temperature=0.7,
-        openai_api_key=LLM_API_KEY,
-        openai_api_base=LLM_BASE_URL,
-        request_timeout=120,
+        api_key=LLM_API_KEY,
+        base_url=LLM_BASE_URL,
+        timeout=120,
         max_retries=2,
     )
 
@@ -576,12 +587,33 @@ async def agent_chat_stream(req: AgentChatRequest):
         from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
         from langchain_core.utils.function_calling import convert_to_openai_tool
 
-        prompt_text = f"[System]\n{AGENT_SYSTEM_PROMPT + current_news_text}\n\n[User]\n{human}"
+        # 当用户开启联网搜索时，先执行搜索，将结果注入上下文
+        web_search_result = None
+        if req.web_search:
+            from tools.web_search import get_web_search_tool
+            ws_tool = get_web_search_tool()
+            if ws_tool:
+                yield f"data: {json.dumps({'type': 'loading', 'message': '正在联网搜索...'}, ensure_ascii=False)}\n\n"
+                try:
+                    web_search_result = await ws_tool.ainvoke({"query": req.message})
+                except Exception as e:
+                    logger.exception("Forced web_search failed")
+                    web_search_result = f"联网搜索失败：{e}"
+            else:
+                web_search_result = "联网搜索未启用（未配置 API Key 或未开启 WEB_SEARCH_ENABLED）。"
+
+        # 如果已执行联网搜索，将结果注入用户消息
+        if web_search_result is not None:
+            enhanced_human = f"{human}\n\n[联网搜索结果]\n{web_search_result}\n\n请基于以上联网搜索结果回答用户的问题。"
+        else:
+            enhanced_human = human
+
+        prompt_text = f"[System]\n{AGENT_SYSTEM_PROMPT + current_news_text}\n\n[User]\n{enhanced_human}"
         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
 
         messages = [
             SystemMessage(content=AGENT_SYSTEM_PROMPT + current_news_text),
-            HumanMessage(content=human),
+            HumanMessage(content=enhanced_human),
         ]
         openai_tools = [convert_to_openai_tool(t) for t in tools]
         llm_with_tools = agent_llm.bind(tools=openai_tools)

@@ -87,11 +87,11 @@ class NewsInterpreter:
                 model=LLM_MODEL,
                 temperature=0.7,
                 streaming=True,
-                openai_api_key=LLM_API_KEY,
-                openai_api_base=LLM_BASE_URL,
-                request_timeout=120,
+                api_key=LLM_API_KEY,
+                base_url=LLM_BASE_URL,
+                timeout=120,
                 max_retries=2,
-                model_kwargs={"extra_body": {"enable_thinking": False}},
+                extra_body={"enable_thinking": False},
             )
 
     def _build_human_message(
