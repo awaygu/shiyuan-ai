@@ -12,6 +12,7 @@ services:
       - NODE_ENV=production
       - ENABLE_CACHE=true
       - INIT_TABLE=true
+      - DISABLE_LOGIN=true  # 添加这一行，禁用登录验证
     deploy:
       resources:
         limits:

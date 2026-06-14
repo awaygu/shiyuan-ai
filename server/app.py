@@ -60,7 +60,7 @@ NEWSNOW_WAIT_INTERVAL = 1
 
 
 async def _wait_for_newsnow():
-    base_url = NEWSNOW_API_URL.rstrip("/s")
+    base_url = NEWSNOW_API_URL
     logger.info("Checking NewsNow availability at %s ...", base_url)
     elapsed = 0
     while elapsed < NEWSNOW_WAIT_TIMEOUT:

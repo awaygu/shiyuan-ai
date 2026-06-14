@@ -555,7 +555,15 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                     output = event.get("data", {}).get("output", {})
                     sources_out = output.get("sources", [])
                     context_text = output.get("context", "")
-                    prompt_text = f"[System]\n{prompt_manager.kb_rag_system_prompt}\n\n【知识库内容】\n{context_text}\n\n[User]\n{req.message}"
+                    doc_meta = output.get("doc_meta", "")
+                    intent = output.get("intent", "specific")
+                    # 根据意图选择展示的系统提示
+                    system_for_display = prompt_manager.kb_rag_summary_system_prompt if intent == "summary" and doc_meta else prompt_manager.kb_rag_system_prompt
+                    prompt_parts = [f"[System]\n{system_for_display}"]
+                    if doc_meta:
+                        prompt_parts.append(f"\n\n{doc_meta}")
+                    prompt_parts.append(f"\n\n【知识库内容】\n{context_text}\n\n[User]\n{req.message}")
+                    prompt_text = "".join(prompt_parts)
                     if not prompt_sent:
                         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
                         prompt_sent = True
@@ -568,7 +576,14 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                         cur_state = await rag_graph.aget_state(config)
                         last_sources = (cur_state.values or {}).get("last_sources", [])
                         last_context = (cur_state.values or {}).get("last_context", "")
-                        prompt_text = f"[System]\n{prompt_manager.kb_rag_system_prompt}\n\n【知识库内容】\n{last_context}\n\n[User]\n{req.message}"
+                        intent = (cur_state.values or {}).get("intent", "specific")
+                        doc_meta = (cur_state.values or {}).get("doc_meta", "")
+                        system_for_display = prompt_manager.kb_rag_summary_system_prompt if intent == "summary" and doc_meta else prompt_manager.kb_rag_system_prompt
+                        prompt_parts = [f"[System]\n{system_for_display}"]
+                        if doc_meta:
+                            prompt_parts.append(f"\n\n{doc_meta}")
+                        prompt_parts.append(f"\n\n【知识库内容】\n{last_context}\n\n[User]\n{req.message}")
+                        prompt_text = "".join(prompt_parts)
                         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
                         prompt_sent = True
                         if last_sources and not sources_sent:

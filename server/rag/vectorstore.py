@@ -196,6 +196,14 @@ class VectorStoreManager:
         self.dim = dim or KB_EMBEDDING_DIM
         self._stores: dict[str, FAISSVectorStore] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._bm25_manager = None
+
+    def _get_bm25(self):
+        """Lazy init BM25 manager to avoid circular imports at module level."""
+        if self._bm25_manager is None:
+            from rag.bm25_index import BM25IndexManager
+            self._bm25_manager = BM25IndexManager()
+        return self._bm25_manager
 
     def _get_lock(self, kb_id: str) -> asyncio.Lock:
         if kb_id not in self._locks:
@@ -211,16 +219,25 @@ class VectorStoreManager:
         async with self._get_lock(kb_id):
             store = self.get(kb_id)
             await asyncio.to_thread(store.add, chunk_ids, vectors, doc_id)
+            # 重建 BM25 索引（下次检索时 lazy rebuild）
+            bm25 = self._get_bm25().get(kb_id)
+            await bm25.add_chunks([])
 
     async def remove_by_doc_async(self, kb_id: str, chunk_ids: set[str]):
         async with self._get_lock(kb_id):
             store = self.get(kb_id)
             await asyncio.to_thread(store.remove_by_doc, chunk_ids)
+            # 重建 BM25 索引
+            bm25 = self._get_bm25().get(kb_id)
+            await bm25.remove_chunks(chunk_ids)
 
     def remove(self, kb_id: str):
         if kb_id in self._stores:
             del self._stores[kb_id]
         self._locks.pop(kb_id, None)
+        # 清理 BM25 索引
+        if self._bm25_manager is not None:
+            self._bm25_manager.remove(kb_id)
         kb_dir = Path(UPLOAD_DIR) / kb_id
         if kb_dir.exists():
             for f in kb_dir.glob("kb_index.faiss"):

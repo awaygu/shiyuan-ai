@@ -162,6 +162,8 @@ class RAGState(dict):
     query: str
     rewritten_query: str
     skip_retrieve: bool
+    intent: str  # "specific" | "summary" | "unknown"
+    doc_meta: str  # 文档元信息（文件名+摘要），summary 查询时注入
     context: str
     sources: list[dict]
     last_context: str
@@ -226,11 +228,71 @@ async def rewrite_query(state: dict) -> dict:
     return {"rewritten_query": query, "skip_retrieve": False}
 
 
+_SUMMARY_KEYWORDS_RE = re.compile(
+    r"(总结|概括|整体|总体|讲了什么|说了什么|主要内容|核心内容|"
+    r"趋势|方向|走向|发展|变化|规律|共性|共同点|"
+    r"对比|比较|差异|区别|不同|相同|相似|"
+    r"这些文件|所有文件|全部文档|各文档|各文件)"
+)
+
+
+async def classify_query(state: dict) -> dict:
+    """查询意图分类：判断用户是在问具体事实还是整体总结/趋势。
+
+    目前采用纯规则匹配（关键词命中），规则未命中时直接返回 specific，
+    避免额外 LLM 调用增加延迟。未来如需更高精度可扩展为轻量 LLM 兜底。
+    """
+    query = state.get("rewritten_query", state.get("query", ""))
+
+    # 规则匹配：命中总结/趋势关键词 → summary
+    if _SUMMARY_KEYWORDS_RE.search(query):
+        logger.info("Query intent (rule): summary, query=%s", query)
+        return {"intent": "summary", "doc_meta": ""}
+
+    # 规则：追问类（代词/短句）但上一条用户消息中有总结意图 → 延续 summary
+    messages = state.get("messages", [])
+    if messages and len(messages) >= 2:
+        human_msgs = [m for m in messages if isinstance(m, HumanMessage)]
+        if len(human_msgs) >= 2:
+            prev_human = human_msgs[-2].content
+            if _SUMMARY_KEYWORDS_RE.search(prev_human):
+                logger.info("Query intent (follow-up): summary, query=%s", query)
+                return {"intent": "summary", "doc_meta": ""}
+
+    # 规则都没命中，默认 specific
+    logger.info("Query intent (rule): specific, query=%s", query)
+    return {"intent": "specific", "doc_meta": ""}
+
+
+# ── RRF fusion ───────────────────────────────────────────────────
+
+
+def _rrf_fuse(
+    vector_results: list[tuple[str, float]],
+    bm25_results: list[tuple[str, float]],
+    k: float = 60.0,
+) -> list[tuple[str, float]]:
+    """Reciprocal Rank Fusion: merge vector and BM25 rankings.
+
+    score(chunk) = 1/(k + rank_vector) + 1/(k + rank_bm25)
+    """
+    scores: dict[str, float] = {}
+
+    for rank, (cid, _) in enumerate(vector_results, start=1):
+        scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
+
+    for rank, (cid, _) in enumerate(bm25_results, start=1):
+        scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank)
+
+    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+
 async def retrieve(state: dict) -> dict:
     from rag.embeddings import DashScopeEmbedding
     from rag.vectorstore import VectorStoreManager
+    from rag.bm25_index import bm25_manager
     from config import KB_EMBEDDING_DIM
-    from database import load_kb_chunk_texts
+    from database import load_kb_chunk_texts, load_kb_docs
 
     if state.get("skip_retrieve", False):
         return {
@@ -241,32 +303,52 @@ async def retrieve(state: dict) -> dict:
     kb_id = state.get("kb_id", "")
     rewritten_query = state.get("rewritten_query", state.get("query", ""))
     doc_ids = state.get("doc_ids", [])
-    top_k = state.get("top_k", 10)
+    base_top_k = state.get("top_k", 10)
+    intent = state.get("intent", "specific")
+
+    # summary 查询：扩大检索范围，覆盖更多文档
+    top_k = base_top_k * 3 if intent == "summary" else base_top_k
 
     embedding_client = DashScopeEmbedding()
     vs_manager = VectorStoreManager(dim=KB_EMBEDDING_DIM)
 
+    # ── 1) 向量检索 ──────────────────────────────────────────────
+    vector_hits = []
     try:
         query_vec = await embedding_client.embed_query_async(rewritten_query)
+        vector_store = vs_manager.get(kb_id)
+        vector_hits = vector_store.search(query_vec, top_k=top_k, doc_ids=doc_ids or None)
     except Exception as e:
-        logger.error("Embedding failed in retrieve: %s", e)
-        return {"context": "（检索失败）", "sources": []}
+        logger.error("Vector search failed: %s", e)
 
-    vector_store = vs_manager.get(kb_id)
-    hits = vector_store.search(query_vec, top_k=top_k, doc_ids=doc_ids or None)
-    if not hits:
+    # ── 2) BM25 检索 ─────────────────────────────────────────────
+    bm25_hits = []
+    try:
+        bm25 = bm25_manager.get(kb_id)
+        bm25_hits = await bm25.search(rewritten_query, top_k=top_k, doc_ids=doc_ids or None)
+    except Exception as e:
+        logger.warning("BM25 search failed: %s", e)
+
+    # ── 3) RRF 融合 ────────────────────────────────────────────
+    fused = _rrf_fuse(vector_hits, bm25_hits, k=60)
+    if not fused:
         return {"context": "（未检索到相关内容）", "sources": []}
 
-    chunk_ids = [cid for cid, _ in hits]
-    score_map = {cid: score for cid, score in hits}
+    # 预截断：根据上下文窗口预算限制 chunk 数量，避免取回来后被 truncate_context 丢弃
+    # 预留 doc_meta 空间（summary 查询会注入文档元信息）
+    meta_reserve = 1500 if intent == "summary" else 0
+    budget = MAX_RAG_CONTEXT_CHARS - meta_reserve
+    # 每个 chunk 上下文开销 ≈ 来源头 50 + 文本平均 300 + 分隔 2 = 350
+    max_chunks = max(budget // 350, 5)
+    chunk_ids = [cid for cid, _ in fused[:max_chunks]]
 
     chunk_data = await load_kb_chunk_texts(chunk_ids)
 
-    filtered_hits = [(cid, score_map[cid]) for cid in chunk_ids if cid in chunk_data]
+    filtered = [(cid, rrf_score) for cid, rrf_score in fused if cid in chunk_data]
 
     context_parts = []
     sources = []
-    for cid, score in filtered_hits:
+    for cid, rrf_score in filtered:
         cd = chunk_data[cid]
         page_info = f", 第{cd['page']}页" if cd.get("page", 0) > 0 else ""
         context_parts.append(f"[来源: {cd['filename']}{page_info}]\n{cd['text']}")
@@ -274,7 +356,7 @@ async def retrieve(state: dict) -> dict:
             {
                 "filename": cd["filename"],
                 "page": cd.get("page", 0),
-                "score": round(score, 4),
+                "score": round(rrf_score, 4),
                 "text": cd["text"],
                 "preview": cd["text"][:80] + ("..." if len(cd["text"]) > 80 else ""),
             }
@@ -282,11 +364,30 @@ async def retrieve(state: dict) -> dict:
 
     context_text = "\n\n".join(context_parts) if context_parts else "（未检索到相关内容）"
 
+    # summary 查询：额外注入文档元信息（文件名+摘要）
+    doc_meta = ""
+    if intent == "summary" and kb_id:
+        try:
+            all_docs = await load_kb_docs(kb_id)
+            if all_docs:
+                meta_parts = []
+                for d in all_docs:
+                    fname = d.get("filename", "未知")
+                    summary = d.get("summary", "")
+                    if summary:
+                        meta_parts.append(f"- [{fname}] {summary}")
+                    else:
+                        meta_parts.append(f"- [{fname}]")
+                doc_meta = "## 知识库文档列表\n" + "\n".join(meta_parts)
+        except Exception as e:
+            logger.warning("Failed to load doc metadata for summary query: %s", e)
+
     return {
         "context": context_text,
         "sources": sources,
         "last_context": context_text,
         "last_sources": sources,
+        "doc_meta": doc_meta,
     }
 
 
@@ -323,6 +424,8 @@ async def generate(state: dict) -> dict:
     messages = state.get("messages", [])
     query = state.get("query", "")
     context = state.get("context", "")
+    intent = state.get("intent", "specific")
+    doc_meta = state.get("doc_meta", "")
 
     summary_llm = ChatOpenAI(
         model=SUMMARY_MODEL,
@@ -350,7 +453,13 @@ async def generate(state: dict) -> dict:
         streaming=True,
     )
 
-    full_system = prompt_manager.kb_rag_system_prompt + f"\n\n【知识库内容】\n{truncate_context(context)}"
+    # 根据意图选择系统提示
+    if intent == "summary" and doc_meta:
+        system_prompt = prompt_manager.kb_rag_summary_system_prompt
+        full_system = system_prompt + f"\n\n{doc_meta}\n\n【检索到的相关片段】\n{truncate_context(context)}"
+    else:
+        system_prompt = prompt_manager.kb_rag_system_prompt
+        full_system = system_prompt + f"\n\n【知识库内容】\n{truncate_context(context)}"
 
     llm_messages = [SystemMessage(content=full_system)] + compressed_messages + [HumanMessage(content=query)]
 
@@ -399,15 +508,17 @@ def build_rag_graph() -> StateGraph:
     graph = StateGraph(RAGState)
 
     graph.add_node("rewrite_query", rewrite_query)
+    graph.add_node("classify_query", classify_query)
     graph.add_node("retrieve", retrieve)
     graph.add_node("generate", generate)
 
     graph.add_edge(START, "rewrite_query")
     graph.add_conditional_edges(
         "rewrite_query",
-        lambda s: "generate" if s.get("skip_retrieve", False) else "retrieve",
-        {"retrieve": "retrieve", "generate": "generate"},
+        lambda s: "generate" if s.get("skip_retrieve", False) else "classify_query",
+        {"classify_query": "classify_query", "generate": "generate"},
     )
+    graph.add_edge("classify_query", "retrieve")
     graph.add_edge("retrieve", "generate")
     graph.add_edge("generate", END)
 

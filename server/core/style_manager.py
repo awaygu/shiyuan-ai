@@ -107,6 +107,14 @@ class PromptManager:
         return getattr(_prompts_module, "PROMPT_UPDATED_AT", "")
 
     @property
+    def kb_rag_summary_system_prompt(self) -> str:
+        return getattr(_prompts_module, "KB_RAG_SUMMARY_SYSTEM_PROMPT", "")
+
+    @property
+    def kb_query_classify_prompt(self) -> str:
+        return getattr(_prompts_module, "KB_QUERY_CLASSIFY_PROMPT", "")
+
+    @property
     def kb_rag_system_prompt(self) -> str:
         return getattr(_prompts_module, "KB_RAG_SYSTEM_PROMPT", "")
 

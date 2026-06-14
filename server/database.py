@@ -412,6 +412,34 @@ async def load_kb_chunk_texts(chunk_ids: list[str]) -> dict[str, dict[str, Any]]
     return result
 
 
+async def load_kb_all_chunks(kb_id: str) -> list[dict[str, Any]]:
+    """加载某个知识库下的所有 chunk（用于 BM25 索引构建）。"""
+    if not kb_id:
+        return []
+    db = await get_db()
+    cursor = await db.execute(
+        """
+        SELECT c.chunk_id, c.text, c.page, c.doc_id, d.filename
+        FROM kb_chunks c
+        LEFT JOIN kb_documents d ON c.doc_id = d.doc_id
+        WHERE d.kb_id = ?
+        ORDER BY c.doc_id, c.chunk_index
+        """,
+        (kb_id,),
+    )
+    rows = await cursor.fetchall()
+    return [
+        {
+            "chunk_id": row["chunk_id"],
+            "text": row["text"],
+            "page": row["page"],
+            "doc_id": row["doc_id"],
+            "filename": row["filename"],
+        }
+        for row in rows
+    ]
+
+
 # ── Knowledge Bases ────────────────────────────────────────────
 
 async def create_kb(kb: dict[str, Any]) -> None:
