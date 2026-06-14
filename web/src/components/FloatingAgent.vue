@@ -141,13 +141,13 @@
             </div>
             <div class="msg-content" v-html="renderMsgHtml(msg)"></div>
           </div>
-          <!-- Action buttons for completed article/interpret results -->
+          <!-- Action buttons for completed results -->
           <div
-            v-if="msg.role === 'assistant' && !msg.streaming && msg.content && msg.type !== 'chat'"
+            v-if="msg.role === 'assistant' && !msg.streaming && msg.content"
             class="msg-actions"
           >
             <button class="msg-action-btn" @click="copyContent(msg.content)">📋 复制</button>
-            <el-dropdown v-if="msg.type === 'article' && msg.articleId" trigger="click" @command="(p: string) => publishArticle(msg.articleId!, p)">
+            <el-dropdown trigger="click" @command="(p: string) => onPublishCommand(msg, p)">
               <button class="msg-action-btn">📤 发布到 ▾</button>
               <template #dropdown>
                 <el-dropdown-menu>
@@ -157,11 +157,6 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <button
-              v-if="msg.type === 'article'"
-              class="msg-action-btn"
-              @click="regenerate(msg)"
-            >🔄 重新生成</button>
           </div>
         </div>
       </div>
@@ -178,10 +173,6 @@
           <span v-if="store.selectedNewsIds.length > 0" class="ctx-tag">已选 {{ store.selectedNewsIds.length }} 条</span>
         </div>
         <div class="toolbar-right">
-          <button :disabled="!store.currentDetailNews || generating" @click="quickInterpret">解读</button>
-          <button :disabled="(!store.currentDetailNews && store.selectedNewsIds.length === 0) || generating" @click="quickGenerate('xiaohongshu')">小红书</button>
-          <button :disabled="(!store.currentDetailNews && store.selectedNewsIds.length === 0) || generating" @click="quickGenerate('wechat_mp')">公众号</button>
-          <button :disabled="(!store.currentDetailNews && store.selectedNewsIds.length === 0) || generating" @click="quickGenerate('douyin')">抖音</button>
           <button :disabled="generating" @click="fetchTrends">热点</button>
           <button :disabled="generating" @click="openBriefing">简报</button>
         </div>
@@ -216,6 +207,15 @@
       </div>
     </div>
 
+    <!-- WeChat AI image options dialog -->
+    <WechatImageOptionsDialog
+      v-model="imageOptsVisible"
+      v-model:generate-cover="imageOpts.generate_cover"
+      v-model:generate-inline-images="imageOpts.generate_inline_images"
+      @confirm="confirmPublish"
+      @cancel="cancelPublish"
+    />
+
     <!-- Snap preview zone -->
     <div
       v-if="isDragging && snapPreview"
@@ -240,13 +240,16 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useNewsStore } from '@/stores'
-import { streamAgentChat, streamInterpret, streamGenerateArticle, publishArticle as apiPublishArticle, fetchTrends as apiFetchTrends, compareSources as apiCompareSources, searchNews as apiSearchNews, streamBriefing, listConversations, getConversationMessages, deleteConversation as apiDeleteConversation } from '@/api'
+import { streamAgentChat, publishArticle as apiPublishArticle, publishByContent, fetchTrends as apiFetchTrends, compareSources as apiCompareSources, searchNews as apiSearchNews, streamBriefing, listConversations, getConversationMessages, deleteConversation as apiDeleteConversation } from '@/api'
 import type { AgentAction, Conversation } from '@/api'
-import type { StyleType } from '@/types'
+import type { ImagePublishOptions } from '@/composables/useWechatPublish'
+import { useWechatPublish } from '@/composables/useWechatPublish'
+import WechatImageOptionsDialog from '@/components/WechatImageOptionsDialog.vue'
 import { marked } from 'marked'
 
 const props = withDefaults(defineProps<{ offsetRight?: number }>(), { offsetRight: 0 })
 const store = useNewsStore()
+const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } = useWechatPublish()
 
 const expanded = ref(true)
 const isDragging = ref(false)
@@ -382,162 +385,36 @@ function pushAssistantError(msgIdx: number, err: string) {
   scrollToBottom()
 }
 
-// ── Quick Interpret ──────────────────────────────────────────
-
-function quickInterpret() {
-  const news = store.currentDetailNews
-  if (!news || generating.value) return
-
-  pushUserMessage(`解读这条新闻：${news.title}`)
-  generating.value = true
-  const msgIdx = addAssistantMessage('interpret')
-  scrollToBottom()
-
-  streamInterpret(news.news_id, 'wechat_mp', {
-    onLoading(message) {
-      messages.value[msgIdx].content = `⏳ ${message}`
-      scrollToBottom()
-    },
-    onPrompt(prompt) {
-      messages.value[msgIdx].prompt = prompt
-      messages.value[msgIdx].promptExpanded = false
-      scrollToBottom()
-    },
-    onLimited(message) {
-      messages.value[msgIdx].content = `ℹ️ ${message}`
-      pushAssistantDone(msgIdx)
-    },
-    onChunk(text) {
-      if (messages.value[msgIdx].content.startsWith('⏳')) {
-        messages.value[msgIdx].content = ''
-      }
-      messages.value[msgIdx].content += text
-      scrollToBottom()
-    },
-    onDone() {
-      pushAssistantDone(msgIdx)
-    },
-    onError(err) {
-      pushAssistantError(msgIdx, `请求失败：${err}`)
-    },
-  })
-}
-
-// ── Quick Generate Article ──────────────────────────────────
-
-function quickGenerate(style: StyleType) {
-  if (store.selectedNewsIds.length === 0 || generating.value) return
-
-  const styleLabels: Record<string, string> = {
-    xiaohongshu: '小红书',
-    wechat_mp: '公众号',
-    douyin: '抖音',
-  }
-  pushUserMessage(`用${styleLabels[style] || style}风格生成文章`)
-  generating.value = true
-  const msgIdx = addAssistantMessage('article')
-  scrollToBottom()
-
-  streamGenerateArticle(
-    store.selectedNewsIds,
-    style,
-    {
-      onLoading() { scrollToBottom() },
-      onPrompt(prompt) {
-        messages.value[msgIdx].prompt = prompt
-        messages.value[msgIdx].promptExpanded = false
-      },
-      onMeta(data) {
-        if (data.article_id) {
-          messages.value[msgIdx].articleId = data.article_id
-        }
-        messages.value[msgIdx].style = style
-        messages.value[msgIdx].newsIds = [...store.selectedNewsIds]
-      },
-      onLimited(message) {
-        messages.value[msgIdx].content = `ℹ️ ${message}`
-        pushAssistantDone(msgIdx)
-      },
-      onChunk(text) {
-        messages.value[msgIdx].content += text
-        scrollToBottom()
-      },
-      onDone() {
-        pushAssistantDone(msgIdx)
-      },
-      onError(err) {
-        pushAssistantError(msgIdx, `生成失败：${err}`)
-      },
-    },
-  )
-}
-
-// ── Regenerate ──────────────────────────────────────────────
-
-function regenerate(msg: ChatMessage) {
-  if (!msg.newsIds || msg.newsIds.length === 0 || generating.value) return
-  const style = (msg.style || 'wechat_mp') as StyleType
-  quickGenerateWithIds(msg.newsIds, style)
-}
-
-function quickGenerateWithIds(newsIds: string[], style: StyleType) {
-  if (generating.value) return
-
-  const styleLabels: Record<string, string> = {
-    xiaohongshu: '小红书',
-    wechat_mp: '公众号',
-    douyin: '抖音',
-  }
-  pushUserMessage(`重新生成${styleLabels[style] || style}风格文章`)
-  generating.value = true
-  const msgIdx = addAssistantMessage('article')
-  scrollToBottom()
-
-  streamGenerateArticle(
-    newsIds,
-    style,
-    {
-      onLoading() { scrollToBottom() },
-      onPrompt(prompt) {
-        messages.value[msgIdx].prompt = prompt
-        messages.value[msgIdx].promptExpanded = false
-      },
-      onMeta(data) {
-        if (data.article_id) {
-          messages.value[msgIdx].articleId = data.article_id
-        }
-        messages.value[msgIdx].style = style
-        messages.value[msgIdx].newsIds = [...newsIds]
-      },
-      onLimited(message) {
-        messages.value[msgIdx].content = `ℹ️ ${message}`
-        pushAssistantDone(msgIdx)
-      },
-      onChunk(text) {
-        messages.value[msgIdx].content += text
-        scrollToBottom()
-      },
-      onDone() {
-        pushAssistantDone(msgIdx)
-      },
-      onError(err) {
-        pushAssistantError(msgIdx, `生成失败：${err}`)
-      },
-    },
-  )
-}
-
 // ── Publish ─────────────────────────────────────────────────
 
-async function publishArticle(articleId: string, platform: string) {
+async function onPublishCommand(msg: ChatMessage, platform: string) {
+  if (platform === 'wechat_mp') {
+    const imageOptions = await needImageOptions()
+    if (imageOptions) {
+      await doPublish(msg, platform, imageOptions)
+    }
+  } else {
+    await doPublish(msg, platform)
+  }
+}
+
+async function doPublish(msg: ChatMessage, platform: string, imageOptions?: ImagePublishOptions) {
   const platformLabels: Record<string, string> = {
     xiaohongshu: '小红书',
     wechat_mp: '微信公众号',
     douyin: '抖音',
   }
   try {
-    await apiPublishArticle(articleId, platform)
-    ElMessage.success(`已发布到${platformLabels[platform] || platform}`)
+    if (msg.articleId) {
+      await apiPublishArticle(msg.articleId, platform, imageOptions ? { generate_cover: imageOptions.generate_cover, generate_inline_images: imageOptions.generate_inline_images } : undefined)
+    } else {
+      const title = msg.content.split('\n').find(l => l.trim() && !l.trim().startsWith('#'))?.trim()?.slice(0, 30) || 'AI 生成内容'
+      await publishByContent(title, msg.content, platform, imageOptions)
+    }
+    store.startTaskStream()
+    store.showTaskPanel = true
+    await store.loadTasks()
+    ElMessage.success(`已提交发布到${platformLabels[platform] || platform}，请在任务列表中查看进度`)
   } catch (e: any) {
     ElMessage.error(`发布失败：${e.message}`)
   }
@@ -683,6 +560,12 @@ async function handleAction(action: AgentAction) {
       const src = action.source || store.currentSource
       await store.loadNews(src)
       ElMessage.success(`${src} 已刷新`)
+    } else if (act === 'generate_article') {
+      // 将 article_id 存储到最后一条 assistant 消息，以便发布
+      const lastAssistantIdx = [...messages.value].map((m, i) => ({ m, i })).filter(x => x.m.role === 'assistant').pop()?.i
+      if (lastAssistantIdx !== undefined && action.article_id) {
+        messages.value[lastAssistantIdx].articleId = action.article_id
+      }
     } else {
       console.warn('未处理的工具类型:', act)
     }

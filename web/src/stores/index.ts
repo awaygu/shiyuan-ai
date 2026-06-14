@@ -348,12 +348,14 @@ export const useNewsStore = defineStore('news', () => {
 
   async function uploadKBDocs(files: File[], kbId?: string) {
     const id = kbId || currentKB.value?.kb_id
-    if (!id) return
+    if (!id) return { results: [] as any[], errors: [] as any[] }
     kbUploading.value = true
     try {
       const { results, errors } = await uploadDocuments(id, files)
       await loadKBDocuments(id)
       return { results, errors }
+    } catch (e: any) {
+      return { results: [] as any[], errors: [{ filename: '', detail: e.message || '上传请求失败' }] as any[] }
     } finally {
       kbUploading.value = false
     }

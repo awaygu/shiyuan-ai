@@ -132,19 +132,20 @@ class ImageGenerator:
             template = IMAGE_PROMPT_INLINE
             text = template.format(section_title=title, section_digest=digest[:300])
 
-        from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+        from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, TEMPERATURE_ANALYZE
         from langchain_openai import ChatOpenAI
         from langchain_core.prompts import ChatPromptTemplate
 
+        from core.style_manager import prompt_manager
         llm = ChatOpenAI(
             api_key=LLM_API_KEY,
             base_url=LLM_BASE_URL,
             model=LLM_MODEL,
-            temperature=0.7,
+            temperature=TEMPERATURE_ANALYZE,
             max_tokens=300,
         )
         prompt_text = ChatPromptTemplate.from_messages([
-            ("system", "You are an expert image prompt writer. Output ONLY the English prompt text, nothing else."),
+            ("system", prompt_manager.image_prompt_writer_system_prompt),
             ("human", text),
         ])
         chain = prompt_text | llm

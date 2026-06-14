@@ -12,6 +12,8 @@ router = APIRouter(prefix="/api/prompts", tags=["prompts"])
 @router.get("/status")
 async def get_prompts_status():
     return {
+        "version": prompt_manager.version,
+        "updated_at": prompt_manager.updated_at,
         "interpret_system_length": len(prompt_manager.get_system_prompt("interpret")),
         "chat_system_length": len(prompt_manager.get_system_prompt("chat")),
         "generate_styles": {
@@ -28,6 +30,8 @@ async def get_prompts_status():
 async def reload_prompts():
     prompt_manager.load()
     return {
+        "version": prompt_manager.version,
+        "updated_at": prompt_manager.updated_at,
         "interpret_system_length": len(prompt_manager.get_system_prompt("interpret")),
         "chat_system_length": len(prompt_manager.get_system_prompt("chat")),
         "generate_styles": {

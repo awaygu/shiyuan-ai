@@ -52,7 +52,7 @@
             class="msg-actions"
           >
             <button class="msg-action-btn" @click="copyContent(msg.content)">复制</button>
-            <el-dropdown @command="(p: string) => onKBPublishCommand(msg.content, p)">
+            <el-dropdown @command="(p: string) => onPublishCommand(msg.content, p)">
               <button class="msg-action-btn">发布到 ▾</button>
               <template #dropdown>
                 <el-dropdown-menu>
@@ -98,33 +98,32 @@
       </div>
     </div>
 
-    <el-dialog v-model="kbImageOptsVisible" title="AI 配图选项" width="400px" :close-on-click-modal="false">
-      <div style="margin-bottom:16px">
-        <el-switch v-model="kbImageOpts.generateCover" active-text="AI 封面图" inactive-text="" style="margin-bottom:12px" />
-        <div style="font-size:12px;color:#909399;margin-top:-8px;margin-bottom:12px">根据文章主题自动生成封面图（0.5元/张）</div>
-        <el-switch v-model="kbImageOpts.generateInlineImages" active-text="AI 正文插图" inactive-text="" />
-        <div style="font-size:12px;color:#909399;margin-top:-8px">为每个章节自动生成配图（耗时较长）</div>
-      </div>
-      <template #footer>
-        <el-button @click="kbImageOptsVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmKBPublishWithImages">确认发布</el-button>
-      </template>
-    </el-dialog>
+    <WechatImageOptionsDialog
+      v-model="imageOptsVisible"
+      v-model:generate-cover="imageOpts.generate_cover"
+      v-model:generate-inline-images="imageOpts.generate_inline_images"
+      @confirm="confirmPublish"
+      @cancel="cancelPublish"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch, reactive } from 'vue'
+import { ref, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import { useNewsStore } from '@/stores'
 import { kbStreamChat, kbStreamGenerate, fetchKBSuggestions, publishByContent } from '@/api'
 import type { StyleType, KBSource, KBMessage } from '@/types'
+import type { ImagePublishOptions } from '@/composables/useWechatPublish'
+import { useWechatPublish } from '@/composables/useWechatPublish'
+import WechatImageOptionsDialog from '@/components/WechatImageOptionsDialog.vue'
 import { marked } from 'marked'
 
 const props = defineProps<{ kbId: string }>()
 defineEmits<{ 'clear-conv': [] }>()
 const store = useNewsStore()
+const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } = useWechatPublish()
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -344,37 +343,18 @@ const platformLabels: Record<string, string> = {
   douyin: '抖音',
 }
 
-const kbImageOptsVisible = ref(false)
-const kbPendingContent = ref('')
-const kbPendingPlatform = ref('')
-const kbImageOpts = reactive({
-  generateCover: true,
-  generateInlineImages: false,
-})
-
-function onKBPublishCommand(content: string, platform: string) {
+async function onPublishCommand(content: string, platform: string) {
   if (platform === 'wechat_mp') {
-    kbPendingContent.value = content
-    kbPendingPlatform.value = platform
-    kbImageOpts.generateCover = true
-    kbImageOpts.generateInlineImages = false
-    kbImageOptsVisible.value = true
+    const imageOptions = await needImageOptions()
+    if (imageOptions) {
+      await onPublish(content, platform, imageOptions)
+    }
   } else {
-    onPublish(content, platform)
+    await onPublish(content, platform)
   }
 }
 
-async function confirmKBPublishWithImages() {
-  const content = kbPendingContent.value
-  const platform = kbPendingPlatform.value
-  kbImageOptsVisible.value = false
-  await onPublish(content, platform, {
-    generate_cover: kbImageOpts.generateCover,
-    generate_inline_images: kbImageOpts.generateInlineImages,
-  })
-}
-
-async function onPublish(content: string, platform: string, imageOptions?: { generate_cover?: boolean; generate_inline_images?: boolean }) {
+async function onPublish(content: string, platform: string, imageOptions?: ImagePublishOptions) {
   const label = platformLabels[platform] || platform
   const title = content.split('\n').find(l => l.trim() && !l.trim().startsWith('#'))?.trim()?.slice(0, 30) || '知识库文章'
 

@@ -13,7 +13,7 @@ from collections.abc import AsyncGenerator
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, TEMPERATURE_ANALYZE
 from .style_manager import StyleType, prompt_manager
 
 MOCK_RESPONSES: dict[StyleType, str] = {
@@ -85,7 +85,7 @@ class NewsInterpreter:
         if not mock:
             self.llm = ChatOpenAI(
                 model=LLM_MODEL,
-                temperature=0.7,
+                temperature=TEMPERATURE_ANALYZE,
                 streaming=True,
                 api_key=LLM_API_KEY,
                 base_url=LLM_BASE_URL,

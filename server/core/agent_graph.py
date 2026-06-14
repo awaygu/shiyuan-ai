@@ -22,6 +22,8 @@ from config import (
     SUMMARY_MODEL,
     SUMMARY_MODEL_BASE_URL,
     SUMMARY_MODEL_API_KEY,
+    TEMPERATURE_ANALYZE,
+    TEMPERATURE_SUMMARY,
     SUMMARY_TRIGGER_TOKENS,
     SUMMARY_KEEP_MESSAGES,
     MEMORY_DB_PATH,
@@ -51,7 +53,7 @@ def get_agent_llm() -> ChatOpenAI:
     """获取 Agent 主 LLM。"""
     return ChatOpenAI(
         model="deepseek-chat",
-        temperature=0.7,
+        temperature=TEMPERATURE_ANALYZE,
         api_key=LLM_API_KEY,
         base_url=LLM_BASE_URL,
         timeout=120,
@@ -63,7 +65,7 @@ def get_summary_llm() -> ChatOpenAI:
     """获取摘要 LLM。"""
     return ChatOpenAI(
         model=SUMMARY_MODEL,
-        temperature=0.3,
+        temperature=TEMPERATURE_SUMMARY,
         api_key=SUMMARY_MODEL_API_KEY,
         base_url=SUMMARY_MODEL_BASE_URL,
         timeout=60,

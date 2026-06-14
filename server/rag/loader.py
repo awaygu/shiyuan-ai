@@ -99,7 +99,8 @@ class DocumentLoader:
         from PIL import Image
         from openai import OpenAI
 
-        from config import DASHSCOPE_API_KEY, KB_VISION_MODEL, KB_VISION_BASE_URL
+        from config import DASHSCOPE_API_KEY, KB_VISION_MODEL, KB_VISION_BASE_URL, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+        from core.style_manager import prompt_manager
 
         img = Image.open(str(path))
         if img.mode == "RGBA":
@@ -127,7 +128,7 @@ class DocumentLoader:
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": data_url}},
-                        {"type": "text", "text": "请提取图片中的所有文字内容。如果图片中没有文字，请简要描述图片的主要内容。"},
+                        {"type": "text", "text": prompt_manager.ocr_extraction_prompt},
                     ],
                 }
             ],
@@ -136,7 +137,6 @@ class DocumentLoader:
         if not ocr_text.strip():
             return [], ""
 
-        from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
         llm_client = OpenAI(
             api_key=LLM_API_KEY,
             base_url=LLM_BASE_URL,
@@ -146,7 +146,7 @@ class DocumentLoader:
         summary_completion = llm_client.chat.completions.create(
             model=LLM_MODEL,
             messages=[
-                {"role": "system", "content": "你是一个标题生成器。根据给出的文本内容，生成一个简短的中文概要标题，不超过15个字，不要加标点，只输出标题本身。"},
+                {"role": "system", "content": prompt_manager.title_generator_system_prompt},
                 {"role": "user", "content": ocr_text.strip()},
             ],
         )

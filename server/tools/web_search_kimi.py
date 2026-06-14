@@ -20,6 +20,8 @@ import warnings
 
 from langchain_core.tools import tool
 
+from core.style_manager import prompt_manager
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +40,7 @@ async def web_search_kimi(query: str) -> str:
     )
 
     messages = [
-        {"role": "system", "content": "你是 Kimi，擅长通过搜索互联网获取最新信息。请用中文回复。"},
+        {"role": "system", "content": prompt_manager.kimi_web_search_system_prompt},
         {"role": "user", "content": query},
     ]
 

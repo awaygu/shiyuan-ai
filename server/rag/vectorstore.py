@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import aiosqlite
 import numpy as np
@@ -21,6 +22,7 @@ class FAISSVectorStore:
         self.kb_id = kb_id
         self.index = None
         self.id_map: list[str] = []
+        self.chunk_doc_map: dict[str, str] = {}
         self._loaded = False
         self._vectors: list = []
 
@@ -28,6 +30,7 @@ class FAISSVectorStore:
         kb_dir.mkdir(parents=True, exist_ok=True)
         self._index_path = kb_dir / "kb_index.faiss"
         self._idmap_path = kb_dir / "kb_id_map.json"
+        self._chunk_doc_path = kb_dir / "kb_chunk_doc_map.json"
 
     def _ensure_loaded(self):
         if self._loaded:
@@ -52,6 +55,11 @@ class FAISSVectorStore:
             self._vectors = []
             self.id_map = []
 
+        if self._chunk_doc_path.exists():
+            self.chunk_doc_map = json.loads(self._chunk_doc_path.read_text("utf-8"))
+        else:
+            self.chunk_doc_map = {}
+
     def save(self):
         if self.index is not None:
             import faiss
@@ -62,8 +70,11 @@ class FAISSVectorStore:
         self._idmap_path.write_text(
             json.dumps(self.id_map, ensure_ascii=False), encoding="utf-8"
         )
+        self._chunk_doc_path.write_text(
+            json.dumps(self.chunk_doc_map, ensure_ascii=False), encoding="utf-8"
+        )
 
-    def add(self, chunk_ids: list[str], vectors: list[list[float]]):
+    def add(self, chunk_ids: list[str], vectors: list[list[float]], doc_id: str = ""):
         self._ensure_loaded()
         vecs = np.array(vectors, dtype=np.float32)
         norms = np.linalg.norm(vecs, axis=1, keepdims=True)
@@ -76,16 +87,47 @@ class FAISSVectorStore:
             self._vectors.extend(vecs)
 
         self.id_map.extend(chunk_ids)
+        if doc_id:
+            for cid in chunk_ids:
+                self.chunk_doc_map[cid] = doc_id
         self.save()
 
     def search(
-        self, query_vector: list[float], top_k: int = 5
+        self, query_vector: list[float], top_k: int = 10, doc_ids: list[str] | None = None
     ) -> list[tuple[str, float]]:
         self._ensure_loaded()
         q = np.array([query_vector], dtype=np.float32)
         norm = np.linalg.norm(q)
         if norm > 0:
             q = q / norm
+
+        if doc_ids is not None and len(doc_ids) == 0:
+            return []
+
+        if doc_ids is not None:
+            target_doc_set = set(doc_ids)
+            target_indices = [
+                i for i, cid in enumerate(self.id_map)
+                if self.chunk_doc_map.get(cid) in target_doc_set
+            ]
+            if not target_indices:
+                return []
+
+            if self.index is not None and self.index.ntotal > 0:
+                all_vecs = self.index.reconstruct_n(0, self.index.ntotal)
+                subset_vecs = np.array([all_vecs[i] for i in target_indices], dtype=np.float32)
+            else:
+                all_vecs = np.array(self._vectors, dtype=np.float32) if hasattr(self, '_vectors') else np.array([], dtype=np.float32)
+                if len(all_vecs) == 0:
+                    return []
+                subset_vecs = all_vecs[target_indices]
+
+            if len(subset_vecs) == 0:
+                return []
+            scores = np.dot(subset_vecs, q[0])
+            actual_k = min(top_k, len(target_indices))
+            top_local = np.argsort(scores)[::-1][:actual_k]
+            return [(self.id_map[target_indices[i]], float(scores[i])) for i in top_local]
 
         if self.index is not None and self.index.ntotal > 0:
             actual_k = min(top_k, self.index.ntotal)
@@ -126,6 +168,8 @@ class FAISSVectorStore:
         else:
             self._vectors = [self._vectors[i] for i in keep_indices]
             self.id_map = [self.id_map[i] for i in keep_indices]
+        for cid in chunk_ids:
+            self.chunk_doc_map.pop(cid, None)
         self.save()
 
     def _rebuild_empty(self):
@@ -136,6 +180,7 @@ class FAISSVectorStore:
         else:
             self._vectors = []
         self.id_map = []
+        self.chunk_doc_map = {}
         self.save()
 
     @property
@@ -149,20 +194,38 @@ class FAISSVectorStore:
 class VectorStoreManager:
     def __init__(self, dim: int = 0):
         self.dim = dim or KB_EMBEDDING_DIM
-        self.dim = dim
         self._stores: dict[str, FAISSVectorStore] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    def _get_lock(self, kb_id: str) -> asyncio.Lock:
+        if kb_id not in self._locks:
+            self._locks[kb_id] = asyncio.Lock()
+        return self._locks[kb_id]
 
     def get(self, kb_id: str) -> FAISSVectorStore:
         if kb_id not in self._stores:
             self._stores[kb_id] = FAISSVectorStore(dim=self.dim, kb_id=kb_id)
         return self._stores[kb_id]
 
+    async def add_async(self, kb_id: str, chunk_ids: list[str], vectors: list[list[float]], doc_id: str = ""):
+        async with self._get_lock(kb_id):
+            store = self.get(kb_id)
+            await asyncio.to_thread(store.add, chunk_ids, vectors, doc_id)
+
+    async def remove_by_doc_async(self, kb_id: str, chunk_ids: set[str]):
+        async with self._get_lock(kb_id):
+            store = self.get(kb_id)
+            await asyncio.to_thread(store.remove_by_doc, chunk_ids)
+
     def remove(self, kb_id: str):
         if kb_id in self._stores:
             del self._stores[kb_id]
+        self._locks.pop(kb_id, None)
         kb_dir = Path(UPLOAD_DIR) / kb_id
         if kb_dir.exists():
             for f in kb_dir.glob("kb_index.faiss"):
                 f.unlink(missing_ok=True)
             for f in kb_dir.glob("kb_id_map.json"):
+                f.unlink(missing_ok=True)
+            for f in kb_dir.glob("kb_chunk_doc_map.json"):
                 f.unlink(missing_ok=True)

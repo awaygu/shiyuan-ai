@@ -307,6 +307,7 @@ export interface AgentAction {
   source?: string
   keyword?: string
   style?: string
+  article_id?: string
 }
 
 export interface AgentStreamCallbacks extends StreamCallbacks {

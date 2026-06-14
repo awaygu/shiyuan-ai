@@ -47,3 +47,7 @@ server/cookies/*.json
 specs/
 specs/*.json
 specs/*.md
+
+interview/
+.claude/
+.opencode/

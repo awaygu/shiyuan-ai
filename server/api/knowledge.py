@@ -12,7 +12,12 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from config import UPLOAD_DIR, LLM_API_KEY, LLM_BASE_URL, KB_EMBEDDING_DIM
+from config import (
+    UPLOAD_DIR, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, KB_EMBEDDING_DIM, MAX_UPLOAD_SIZE,
+    TEMPERATURE_GENERATE,
+    MAX_RAG_CONTEXT_CHARS,
+)
+from core.style_manager import prompt_manager
 from database import (
     create_kb,
     load_kbs,
@@ -52,28 +57,7 @@ loader = DocumentLoader()
 vs_manager = VectorStoreManager(dim=KB_EMBEDDING_DIM)
 
 
-KB_RAG_SYSTEM_PROMPT = """\
-你是知识库AI助手。以下是从知识库中检索到的相关文档片段，请优先基于这些内容回答用户问题。
-
-规则：
-- 优先参考知识库内容回答，引用时标注来源文件名
-- 如果知识库中有相关信息，请结合知识库内容详细回答
-- 如果知识库中没有相关信息，可以基于自身知识回答，但需明确说明"知识库中未找到相关内容，以下为AI参考回答"
-- 回复使用中文
-"""
-
-KB_GENERATE_SYSTEM_PROMPT = """\
-你是资深财经内容创作者。以下是从知识库中检索到的相关内容，请基于这些内容生成文章。
-
-规则：
-- 严格基于知识库内容，不得编造数据
-- 引用数据标注来源文件
-- 如果知识库中没有相关内容，请明确说明"知识库中暂无相关内容，无法生成文章"，不要自行编造
-- 回复使用中文
-"""
-
-
-# ── KB CRUD ────────────────────────────────────────────────────
+vs_manager = VectorStoreManager(dim=KB_EMBEDDING_DIM)
 
 class CreateKBRequest(BaseModel):
     name: str
@@ -157,13 +141,16 @@ async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
     if ext not in loader.SUPPORTED_EXTENSIONS:
         raise HTTPException(400, f"Unsupported file type: {ext}. Supported: {loader.SUPPORTED_EXTENSIONS}")
 
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(400, f"File too large: {len(content)} bytes (max {MAX_UPLOAD_SIZE} bytes)")
+
     upload_dir = Path(UPLOAD_DIR) / kb_id
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     doc_id = uuid.uuid4().hex[:16]
     save_path = upload_dir / f"{doc_id}{ext}"
 
-    content = await file.read()
     save_path.write_bytes(content)
 
     try:
@@ -189,7 +176,7 @@ async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
         summary_completion = llm_client.chat.completions.create(
             model=LLM_MODEL,
             messages=[
-                {"role": "system", "content": "你是一个文档概要生成器。根据给出的文本内容，生成一段200字以内的中文概要，简洁概括文档的主要内容和关键信息。"},
+                {"role": "system", "content": prompt_manager.doc_summary_system_prompt},
                 {"role": "user", "content": summary_text},
             ],
         )
@@ -204,26 +191,13 @@ async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
 
     try:
         texts = [c.text for c in chunks]
-        vectors = embedding_client.embed(texts)
+        vectors = await embedding_client.embed_async(texts)
     except Exception as e:
         save_path.unlink(missing_ok=True)
         raise HTTPException(500, f"Embedding failed: {e}")
 
     chunk_ids = [c.chunk_id for c in chunks]
-    vector_store = vs_manager.get(kb_id)
-    vector_store.add(chunk_ids, vectors)
-
-    chunk_dicts = [
-        {
-            "chunk_id": c.chunk_id,
-            "doc_id": doc_id,
-            "chunk_index": c.chunk_index,
-            "page": c.page,
-            "text": c.text,
-        }
-        for c in chunks
-    ]
-    await save_kb_chunks(chunk_dicts)
+    await vs_manager.add_async(kb_id, chunk_ids, vectors, doc_id)
 
     doc_record = {
         "doc_id": doc_id,
@@ -237,6 +211,18 @@ async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
         "summary": doc_summary,
     }
     await save_kb_doc(doc_record)
+
+    chunk_dicts = [
+        {
+            "chunk_id": c.chunk_id,
+            "doc_id": doc_id,
+            "chunk_index": c.chunk_index,
+            "page": c.page,
+            "text": c.text,
+        }
+        for c in chunks
+    ]
+    await save_kb_chunks(chunk_dicts)
 
     final_filename = doc_record["filename"]
     return {
@@ -318,8 +304,7 @@ async def delete_document(kb_id: str, doc_id: str):
 
     deleted_chunk_ids = await delete_kb_doc(doc_id)
     if deleted_chunk_ids:
-        vector_store = vs_manager.get(kb_id)
-        vector_store.remove_by_doc(set(deleted_chunk_ids))
+        await vs_manager.remove_by_doc_async(kb_id, set(deleted_chunk_ids))
 
     upload_dir = Path(UPLOAD_DIR) / kb_id
     for ext in loader.SUPPORTED_EXTENSIONS:
@@ -334,7 +319,8 @@ async def delete_document(kb_id: str, doc_id: str):
 
 class KBSearchRequest(BaseModel):
     query: str
-    top_k: int = Field(default=5, ge=1, le=20)
+    doc_ids: list[str] = Field(default_factory=list)
+    top_k: int = Field(default=10, ge=1, le=20)
 
 
 @router.post("/bases/{kb_id}/search")
@@ -348,11 +334,11 @@ async def search_knowledge(kb_id: str, req: KBSearchRequest):
         return {"results": [], "total": 0}
 
     try:
-        query_vec = embedding_client.embed_query(req.query)
+        query_vec = await embedding_client.embed_query_async(req.query)
     except Exception as e:
         raise HTTPException(500, f"Embedding query failed: {e}")
 
-    hits = vector_store.search(query_vec, top_k=req.top_k)
+    hits = vector_store.search(query_vec, top_k=req.top_k, doc_ids=req.doc_ids or None)
     if not hits:
         return {"results": [], "total": 0}
 
@@ -406,7 +392,7 @@ async def get_suggestions(kb_id: str):
         resp = llm_client.chat.completions.create(
             model=LLM_MODEL,
             messages=[
-                {"role": "system", "content": "你是一个问题生成器。根据给出的知识库信息，生成3个用户可能会问的问题。每个问题一行，只输出问题本身，不要编号和标点前缀。问题应涵盖不同方面，简洁具体。"},
+                {"role": "system", "content": prompt_manager.question_generator_system_prompt},
                 {"role": "user", "content": context},
             ],
         )
@@ -489,7 +475,7 @@ async def save_msg(kb_id: str, conv_id: str, req: SaveMessageRequest):
 class KBChatRequest(BaseModel):
     message: str
     doc_ids: list[str] = Field(default_factory=list)
-    top_k: int = Field(default=5, ge=1, le=10)
+    top_k: int = Field(default=10, ge=1, le=20)
 
 
 def _kb_conv_id(kb_id: str) -> str:
@@ -569,7 +555,7 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                     output = event.get("data", {}).get("output", {})
                     sources_out = output.get("sources", [])
                     context_text = output.get("context", "")
-                    prompt_text = f"[System]\n{KB_RAG_SYSTEM_PROMPT}\n\n【知识库内容】\n{context_text}\n\n[User]\n{req.message}"
+                    prompt_text = f"[System]\n{prompt_manager.kb_rag_system_prompt}\n\n【知识库内容】\n{context_text}\n\n[User]\n{req.message}"
                     if not prompt_sent:
                         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
                         prompt_sent = True
@@ -582,7 +568,7 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                         cur_state = await rag_graph.aget_state(config)
                         last_sources = (cur_state.values or {}).get("last_sources", [])
                         last_context = (cur_state.values or {}).get("last_context", "")
-                        prompt_text = f"[System]\n{KB_RAG_SYSTEM_PROMPT}\n\n【知识库内容】\n{last_context}\n\n[User]\n{req.message}"
+                        prompt_text = f"[System]\n{prompt_manager.kb_rag_system_prompt}\n\n【知识库内容】\n{last_context}\n\n[User]\n{req.message}"
                         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
                         prompt_sent = True
                         if last_sources and not sources_sent:
@@ -667,7 +653,7 @@ class KBGenerateRequest(BaseModel):
     message: str = ""
     style: str = "wechat_mp"
     doc_ids: list[str] = Field(default_factory=list)
-    top_k: int = Field(default=5, ge=1, le=10)
+    top_k: int = Field(default=10, ge=1, le=20)
 
 
 @router.post("/bases/{kb_id}/generate/stream")
@@ -682,21 +668,19 @@ async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
 
     query = req.message or "总结知识库核心内容"
     try:
-        query_vec = embedding_client.embed_query(query)
+        query_vec = await embedding_client.embed_query_async(query)
     except Exception as e:
         raise HTTPException(500, f"Embedding failed: {e}")
 
-    hits = vector_store.search(query_vec, top_k=10)
-    chunk_ids = [cid for cid, _ in hits]
-    score_map = {cid: score for cid, score in hits}
-
-    selected_doc_set = set(req.doc_ids) if req.doc_ids else None
-    chunk_data = await load_kb_chunk_texts(chunk_ids)
-
-    if selected_doc_set:
-        chunk_data = {cid: cd for cid, cd in chunk_data.items() if cd.get("doc_id") in selected_doc_set}
-
-    filtered_hits = [(cid, score_map[cid]) for cid in chunk_ids if cid in chunk_data]
+    hits = vector_store.search(query_vec, top_k=req.top_k, doc_ids=req.doc_ids or None)
+    if not hits:
+        chunk_data = {}
+        filtered_hits = []
+    else:
+        chunk_ids = [cid for cid, _ in hits]
+        score_map = {cid: score for cid, score in hits}
+        chunk_data = await load_kb_chunk_texts(chunk_ids)
+        filtered_hits = [(cid, score_map[cid]) for cid in chunk_ids if cid in chunk_data]
 
     context_parts = []
     for cid, _ in filtered_hits:
@@ -709,7 +693,14 @@ async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
     style_labels = {"xiaohongshu": "小红书", "wechat_mp": "微信公众号", "douyin": "抖音"}
     style_label = style_labels.get(req.style, req.style)
 
-    full_system = KB_GENERATE_SYSTEM_PROMPT + f"\n\n【知识库内容】\n{context_text}"
+    context_text = "\n\n".join(context_parts) if context_parts else "（未检索到相关内容）"
+    # 截断过长的上下文
+    if len(context_text) > MAX_RAG_CONTEXT_CHARS:
+        context_text = context_text[:MAX_RAG_CONTEXT_CHARS] + "\n\n...（内容过长，已截断）"
+
+    full_system = prompt_manager.kb_generate_system_prompt + f"\n\n【知识库内容】\n{context_text}"
+
+    style_hints = prompt_manager.kb_style_hints
 
     style_hints = {
         "xiaohongshu": "请用小红书风格生成：emoji开头标题、短段落口语化、关键数字用类比、结尾互动引导+话题标签、800字以内",
@@ -726,7 +717,7 @@ async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
 
         llm = ChatOpenAI(
             model="deepseek-chat",
-            temperature=0.7,
+            temperature=TEMPERATURE_GENERATE,
             api_key=LLM_API_KEY,
             base_url=LLM_BASE_URL,
             timeout=120,
@@ -791,7 +782,7 @@ async def kb_search_internal(query: str, top_k: int = 5) -> str:
         if vector_store.total_vectors == 0:
             continue
         try:
-            query_vec = embedding_client.embed_query(query)
+            query_vec = await embedding_client.embed_query_async(query)
         except Exception:
             continue
         hits = vector_store.search(query_vec, top_k=top_k)

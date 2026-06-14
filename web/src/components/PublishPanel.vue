@@ -74,59 +74,39 @@
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="imageOptsVisible" title="AI 配图选项" width="400px" :close-on-click-modal="false">
-      <div style="margin-bottom:16px">
-        <el-switch v-model="imageOpts.generateCover" active-text="AI 封面图" inactive-text="" style="margin-bottom:12px" />
-        <div style="font-size:12px;color:#909399;margin-top:-8px;margin-bottom:12px">根据文章主题自动生成封面图（0.5元/张）</div>
-        <el-switch v-model="imageOpts.generateInlineImages" active-text="AI 正文插图" inactive-text="" />
-        <div style="font-size:12px;color:#909399;margin-top:-8px">为每个章节自动生成配图（耗时较长）</div>
-      </div>
-      <template #footer>
-        <el-button @click="imageOptsVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmPublishWithImages">确认发布</el-button>
-      </template>
-    </el-dialog>
+    <WechatImageOptionsDialog
+      v-model="imageOptsVisible"
+      v-model:generate-cover="imageOpts.generate_cover"
+      v-model:generate-inline-images="imageOpts.generate_inline_images"
+      @confirm="confirmPublish"
+      @cancel="cancelPublish"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import { useNewsStore } from '@/stores'
 import { STYLE_LABELS, PLATFORM_LABELS } from '@/types'
+import type { ImagePublishOptions } from '@/composables/useWechatPublish'
+import { useWechatPublish } from '@/composables/useWechatPublish'
+import WechatImageOptionsDialog from '@/components/WechatImageOptionsDialog.vue'
 
 const store = useNewsStore()
 const activeTab = ref('articles')
+const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } = useWechatPublish()
 
-const imageOptsVisible = ref(false)
-const pendingPublishId = ref('')
-const pendingPublishPlatform = ref('')
-const imageOpts = reactive({
-  generateCover: true,
-  generateInlineImages: false,
-})
-
-function onPublishCommand(articleId: string, platform: string) {
+async function onPublishCommand(articleId: string, platform: string) {
   if (platform === 'wechat_mp') {
-    pendingPublishId.value = articleId
-    pendingPublishPlatform.value = platform
-    imageOpts.generateCover = true
-    imageOpts.generateInlineImages = false
-    imageOptsVisible.value = true
+    const imageOptions = await needImageOptions()
+    if (imageOptions) {
+      await handlePublish(articleId, platform, imageOptions)
+    }
   } else {
-    handlePublish(articleId, platform)
+    await handlePublish(articleId, platform)
   }
-}
-
-async function confirmPublishWithImages() {
-  const articleId = pendingPublishId.value
-  const platform = pendingPublishPlatform.value
-  imageOptsVisible.value = false
-  await handlePublish(articleId, platform, {
-    generate_cover: imageOpts.generateCover,
-    generate_inline_images: imageOpts.generateInlineImages,
-  })
 }
 
 function getStyleLabel(style: string): string {
@@ -155,7 +135,7 @@ function renderMarkdown(text: string): string {
 async function handlePublish(
   articleId: string,
   platform: string,
-  imageOptions?: { generate_cover?: boolean; generate_inline_images?: boolean }
+  imageOptions?: ImagePublishOptions
 ) {
   const label = getPlatformLabel(platform)
   try {

@@ -19,6 +19,7 @@ from config import (
     NEWSNOW_CRAWL_INTERVAL,
     RSS_CRAWL_INTERVAL,
     NEWSNOW_API_URL,
+    CORS_ORIGINS,
 )
 from sources.newsnow import check_newsnow_health, FALLBACK_API_URL
 from database import (
@@ -27,6 +28,7 @@ from database import (
     save_news,
     load_articles,
     load_publish_log,
+    close_db,
 )
 from api.deps import (
     news_store,
@@ -136,12 +138,14 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    await close_db()
+
 
 app = FastAPI(title="识渊 - AI解读与知识库", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS.split(",") if CORS_ORIGINS != "*" else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

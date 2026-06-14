@@ -26,10 +26,16 @@ from config import (
     KB_RAG_SUMMARY_TRIGGER_TOKENS,
     LLM_API_KEY,
     LLM_BASE_URL,
+    LLM_MODEL,
     SUMMARY_MODEL,
     SUMMARY_MODEL_API_KEY,
     SUMMARY_MODEL_BASE_URL,
+    TEMPERATURE_REWRITE,
+    TEMPERATURE_SUMMARY,
+    TEMPERATURE_CHAT,
+    MAX_RAG_CONTEXT_CHARS,
 )
+from core.style_manager import prompt_manager
 
 logger = logging.getLogger(__name__)
 
@@ -131,10 +137,7 @@ class SummarizationMiddleware:
             resp = await self.model.ainvoke(
                 [
                     SystemMessage(
-                        content=(
-                            "你是一个对话摘要生成器。请将以下对话历史压缩为一段简洁的中文摘要，"
-                            "保留关键信息、用户关注点和已讨论的结论。不超过300字。"
-                        )
+                        content=prompt_manager.conversation_summary_prompt
                     ),
                     HumanMessage(content=conversation_text),
                 ]
@@ -171,28 +174,6 @@ class RAGState(dict):
 # ── Nodes ────────────────────────────────────────────────────────
 
 
-REWRITE_SYSTEM_PROMPT = """\
-你是一个查询意图识别与改写助手。根据历史对话和当前用户输入，判断用户的意图类型。
-
-输出严格的 JSON 格式（不要有任何其他内容）：
-{
-  "type": "new_question" | "follow_up_need_search" | "follow_up_no_search",
-  "rewritten_query": "改写后的完整查询语句"
-}
-
-判断规则：
-- "new_question": 全新话题，与历史无关。rewritten_query 保持原问题或稍作优化
-- "follow_up_need_search": 追问且需要检索知识库（例如追问具体内容、数据、新角度）。必须消解代词，补全主语，生成完整查询
-- "follow_up_no_search": 纯追问，只需基于上轮回答展开即可（例如"详细解释一下"、"再说说"）。rewritten_query 可为空字符串
-
-示例：
-历史：用户问"量子计算原理"，AI回答后
-输入："那它有什么应用场景？" → {"type": "follow_up_need_search", "rewritten_query": "量子计算有什么应用场景？"}
-输入："你能详细解释一下第二点吗？" → {"type": "follow_up_no_search", "rewritten_query": ""}
-输入："那IBM的量子计算机进展如何？" → {"type": "follow_up_need_search", "rewritten_query": "IBM量子计算机最新进展"}
-"""
-
-
 async def rewrite_query(state: dict) -> dict:
     query = state.get("query", "")
     messages = state.get("messages", [])
@@ -212,7 +193,7 @@ async def rewrite_query(state: dict) -> dict:
     try:
         rewrite_llm = ChatOpenAI(
             model=SUMMARY_MODEL,
-            temperature=0,
+            temperature=TEMPERATURE_REWRITE,
             api_key=SUMMARY_MODEL_API_KEY,
             base_url=SUMMARY_MODEL_BASE_URL,
             timeout=15,
@@ -220,7 +201,7 @@ async def rewrite_query(state: dict) -> dict:
         )
         resp = await rewrite_llm.ainvoke(
             [
-                SystemMessage(content=REWRITE_SYSTEM_PROMPT),
+                SystemMessage(content=prompt_manager.rewrite_system_prompt),
                 HumanMessage(
                     content=f"历史对话：\n{history_text}\n当前用户输入：{query}"
                 ),
@@ -260,34 +241,26 @@ async def retrieve(state: dict) -> dict:
     kb_id = state.get("kb_id", "")
     rewritten_query = state.get("rewritten_query", state.get("query", ""))
     doc_ids = state.get("doc_ids", [])
-    top_k = state.get("top_k", 5)
+    top_k = state.get("top_k", 10)
 
     embedding_client = DashScopeEmbedding()
     vs_manager = VectorStoreManager(dim=KB_EMBEDDING_DIM)
 
     try:
-        query_vec = embedding_client.embed_query(rewritten_query)
+        query_vec = await embedding_client.embed_query_async(rewritten_query)
     except Exception as e:
         logger.error("Embedding failed in retrieve: %s", e)
         return {"context": "（检索失败）", "sources": []}
 
     vector_store = vs_manager.get(kb_id)
-    hits = vector_store.search(query_vec, top_k=top_k)
+    hits = vector_store.search(query_vec, top_k=top_k, doc_ids=doc_ids or None)
     if not hits:
         return {"context": "（未检索到相关内容）", "sources": []}
 
     chunk_ids = [cid for cid, _ in hits]
     score_map = {cid: score for cid, score in hits}
 
-    selected_doc_set = set(doc_ids) if doc_ids else None
     chunk_data = await load_kb_chunk_texts(chunk_ids)
-
-    if selected_doc_set:
-        chunk_data = {
-            cid: cd
-            for cid, cd in chunk_data.items()
-            if cd.get("doc_id") in selected_doc_set
-        }
 
     filtered_hits = [(cid, score_map[cid]) for cid in chunk_ids if cid in chunk_data]
 
@@ -317,15 +290,33 @@ async def retrieve(state: dict) -> dict:
     }
 
 
-KB_RAG_SYSTEM_PROMPT = """\
-你是知识库AI助手。以下是从知识库中检索到的相关文档片段，请优先基于这些内容回答用户问题。
+def truncate_context(context: str, max_chars: int = MAX_RAG_CONTEXT_CHARS) -> str:
+    """按 chunk 截断上下文，保留最相关的部分，避免超出上下文窗口。
 
-规则：
-- 优先参考知识库内容回答，引用时标注来源文件名
-- 如果知识库中有相关信息，请结合知识库内容详细回答
-- 如果知识库中没有相关信息，可以基于自身知识回答，但需明确说明"知识库中未找到相关内容，以下为AI参考回答"
-- 回复使用中文
-"""
+    策略：
+    - 优先保留完整的 chunk（每个 chunk 通常是一个文档片段）
+    - 如果单个 chunk 就超过上限，截断该 chunk 并保留前 max_chars 字符
+    """
+    if len(context) <= max_chars:
+        return context
+    chunks = context.split("\n\n")
+    result = []
+    current_len = 0
+    for chunk in chunks:
+        needed = len(chunk) + (2 if result else 0)
+        if current_len + needed > max_chars:
+            # 如果这是第一个 chunk 且它本身就超长，截断它
+            if not result:
+                result.append(chunk[:max_chars])
+                current_len = max_chars
+            break
+        result.append(chunk)
+        current_len += needed
+    logger.warning(
+        "Context truncated: %d chars → %d chars (kept %d/%d chunks)",
+        len(context), current_len, len(result), len(chunks),
+    )
+    return "\n\n".join(result)
 
 
 async def generate(state: dict) -> dict:
@@ -335,7 +326,7 @@ async def generate(state: dict) -> dict:
 
     summary_llm = ChatOpenAI(
         model=SUMMARY_MODEL,
-        temperature=0.3,
+        temperature=TEMPERATURE_SUMMARY,
         api_key=SUMMARY_MODEL_API_KEY,
         base_url=SUMMARY_MODEL_BASE_URL,
         timeout=60,
@@ -350,8 +341,8 @@ async def generate(state: dict) -> dict:
     compressed_messages = await mw.maybe_summarize(messages)
 
     agent_llm = ChatOpenAI(
-        model="deepseek-chat",
-        temperature=0.7,
+        model=LLM_MODEL,
+        temperature=TEMPERATURE_CHAT,
         api_key=LLM_API_KEY,
         base_url=LLM_BASE_URL,
         timeout=120,
@@ -359,7 +350,7 @@ async def generate(state: dict) -> dict:
         streaming=True,
     )
 
-    full_system = KB_RAG_SYSTEM_PROMPT + f"\n\n【知识库内容】\n{context}"
+    full_system = prompt_manager.kb_rag_system_prompt + f"\n\n【知识库内容】\n{truncate_context(context)}"
 
     llm_messages = [SystemMessage(content=full_system)] + compressed_messages + [HumanMessage(content=query)]
 

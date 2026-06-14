@@ -14,90 +14,12 @@ from pydantic import BaseModel, Field
 
 from config import NEWS_SOURCES
 from . import deps
+from .interpret import LIMITED_CONTENT_MSG
 from core.interpreter import NewsInterpreter
 from core.style_manager import StyleType, prompt_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agent", tags=["agent"])
-
-
-# ── System Prompt ──────────────────────────────────────────────
-
-AGENT_SYSTEM_PROMPT = """\
-你是一位资深金融财经分析师，同时精通自媒体内容创作。你集成在新闻网站内，拥有多种工具可以调用，帮助用户获取信息、深度解读新闻、生成多平台内容。
-
-## 核心视角
-
-一切新闻解读以金融、财经、经济、政策为第一视角：
-- **宏观层面**：关注货币政策、财政政策、产业政策、监管动向对市场的影响
-- **行业层面**：分析产业链上下游联动、竞争格局变化、技术替代趋势
-- **市场层面**：研判对资本市场（A股/港股/美股）、大宗商品、汇率的影响
-- **微观层面**：评估对企业盈利、估值、商业模式的结构性影响
-- **个人层面**：提炼对普通投资者、消费者、从业者的实际意义
-
-分析时须区分「事实」与「判断」——事实必须严格依据原文，判断须标注置信度。
-
-## 你的能力
-
-1. **自由聊天** — 回答用户的任何问题，尤其是金融、财经、经济、政策领域
-2. **新闻解读** — 使用 get_news_content 工具获取新闻内容后进行深度分析
-3. **热点趋势** — 使用 get_trends 工具获取当前热门话题
-4. **搜索新闻** — 使用 search_news 工具搜索特定话题
-5. **多源对比** — 使用 compare_sources 工具获取不同来源的报道后进行对比分析
-6. **每日简报** — 使用 get_briefing_data 工具获取新闻数据后生成简报
-7. **执行操作** — 使用 refresh_news / refresh_source 工具刷新新闻数据
-8. **知识库检索** — 使用 search_knowledge_base 工具搜索用户上传的知识库文档，获取相关文档片段作为参考
-9. **联网搜索** — 使用 web_search 工具搜索互联网获取最新信息。当本地新闻库中没有相关信息、或用户询问实时/最新数据时，优先使用此工具
-
-## 生成文章的风格指南
-
-当用户要求生成文章时，请先使用 get_news_content 获取新闻内容，然后按照指定风格生成。切换风格时，你的专业人设也相应切换：
-
-### 小红书风格
-**人设**：拥有50万粉丝的财经类小红书博主，擅长把复杂的金融政策讲成"大白话"，让理财小白也能秒懂。
-
-- 标题用 emoji 开头，制造信息差感（"💰这条消息90%的人还不知道"）
-- 短段落，口语化，像闺蜜聊天一样讲财经
-- 关键数字用类比解释（"相当于每个人多花了X元"）
-- 多用 emoji 但不过度，emoji 仅作视觉引导不替代内容
-- 结尾给行动建议 + 互动引导（"你们怎么看？评论区聊聊👇"）
-- 末尾附 3-5 个话题标签（#财经 #理财 等）
-- 严格控制在 800 字以内
-
-### 微信公众号风格
-**人设**：头部财经公众号主笔，曾任券商研究所分析师，行文严谨但不枯燥，善于从数据中挖掘被忽略的逻辑。
-
-- 标题简洁有力，点明核心结论或悬念，不做标题党
-- **开头**（150字内）：用新闻中最有冲击力的数据或事实切入
-- **核心分析**：分 2-4 节，每节含关键事实 + 逻辑推演 + 数据支撑
-- **影响研判**：从宏观和微观两个层面分析深远影响
-- **结尾**：前瞻性判断，语言克制但有洞见
-- 引用数据标注来源语境（"据原文披露"），不编造数据
-- 篇幅 1200-1800 字
-
-### 抖音风格
-**人设**：百万粉丝财经抖音博主，以"3分钟看懂X"系列闻名，擅长用最短时间把财经新闻讲透。
-
-- 极简标题，数字冲击力强（"3分钟看懂！央行降息意味着什么"）
-- 短平快，每句不超过 20 字，适合口播
-- 开头 3 秒钩子：最反直觉或最震撼的一句
-- 正文 3 个要点，用"第一！""第二！""第三！"引导节奏
-- 数字口语化（"涨了六成"而非"增长了60%"）
-- 结尾互动引导（"你怎么看？评论区告诉我！"）
-- 总时长 60 秒口播以内，约 200-300 字
-
-可用新闻源：""" + "\n".join(f"- {k}: {v}" for k, v in NEWS_SOURCES.items()) + """
-
-## 规则
-
-- 当用户的问题可以通过工具获取数据时，优先使用工具
-- 工具返回的数据是原始信息，请用专业视角整理后回复用户
-- 解读新闻时，先调用 get_news_content 获取完整内容，再进行深度分析
-- 分析必须基于新闻事实，不得编造原文未提及的数据或结论
-- 信息不足时明确标注"根据目前信息尚无法确认"，而非猜测
-- 生成简报时，先调用 get_briefing_data 获取数据，再生成结构化简报
-- 回复使用中文
-"""
 
 
 # ── Keyword Extraction ─────────────────────────────────────────
@@ -147,6 +69,8 @@ TOOL_DISPLAY_NAMES = {
     "get_briefing_data": "获取简报数据",
     "search_knowledge_base": "搜索知识库",
     "web_search": "联网搜索",
+    "generate_article": "生成文章",
+    "interpret_news": "解读新闻",
 }
 
 
@@ -343,7 +267,67 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         from routers.knowledge import kb_search_internal
         return await kb_search_internal(query, top_k)
 
-    tools_list = [refresh_news, refresh_source, get_trends, search_news, compare_sources, get_news_content, get_briefing_data, search_knowledge_base]
+    @tool
+    async def generate_article(style: str = "wechat_mp", title: str | None = None, prompt: str | None = None) -> str:
+        """根据当前选中的新闻生成自媒体文章。当用户要求写文章、生成内容、创作帖子时调用此工具。
+        style 可选: xiaohongshu（小红书）、wechat_mp（微信公众号）、douyin（抖音），默认 wechat_mp。
+        title 为可选自定义标题，prompt 为可选自定义提示词。
+        此工具会自动获取新闻内容并按风格生成，无需先调用 get_news_content。"""
+        ids = selected_news_ids or ([current_news_id] if current_news_id else [])
+        if not ids:
+            return "当前没有选中或查看的新闻。请告知用户先选择一条新闻。"
+
+        items = deps.find_news_batch(ids)
+        if not items:
+            return "未找到对应的新闻内容。"
+
+        for item in items:
+            await deps.ensure_content(item)
+
+        limited = [item.get("title", "") for item in items if deps.is_limited_content(item)]
+        if limited and not any(not deps.is_limited_content(i) for i in items):
+            return LIMITED_CONTENT_MSG
+
+        resolved_style = deps.resolve_style(style)
+        article = await deps.interpreter.generate_article(items, resolved_style, title, prompt=prompt)
+        article["article_id"] = f"art_{len(deps.article_store) + 1}"
+
+        async with deps.article_lock:
+            deps.article_store.append(article)
+            await deps.save_article(article)
+
+        return json.dumps({
+            "article_id": article["article_id"],
+            "title": article.get("title", ""),
+            "style": resolved_style.value,
+            "content_length": len(article.get("content", "")),
+            "message": "文章已生成，article_id 已保存，可用于发布。",
+        }, ensure_ascii=False)
+
+    @tool
+    async def interpret_news() -> str:
+        """对当前选中的新闻进行深度解读分析。当用户要求解读、分析新闻时调用此工具。
+        此工具会自动获取新闻内容并进行解读，无需先调用 get_news_content。"""
+        ids = selected_news_ids or ([current_news_id] if current_news_id else [])
+        if not ids:
+            return "当前没有选中或查看的新闻。请告知用户先选择一条新闻。"
+
+        items = deps.find_news_batch(ids)
+        if not items:
+            return "未找到对应的新闻内容。"
+
+        for item in items:
+            await deps.ensure_content(item)
+
+        limited = [item.get("title", "") for item in items if deps.is_limited_content(item)]
+        if limited and not any(not deps.is_limited_content(i) for i in items):
+            return LIMITED_CONTENT_MSG
+
+        style = deps.resolve_style("wechat_mp")
+        result = await deps.interpreter.interpret(items, style)
+        return result
+
+    tools_list = [refresh_news, refresh_source, get_trends, search_news, compare_sources, get_news_content, get_briefing_data, search_knowledge_base, generate_article, interpret_news]
 
     # 联网搜索工具（根据 WEB_SEARCH_ENGINE 配置选择引擎）
     from tools.web_search import get_web_search_tool
@@ -588,7 +572,7 @@ async def agent_chat_stream(req: AgentChatRequest):
         human = f"用户选中的新闻ID: {', '.join(req.news_ids)}\n\n{req.message}"
 
     # 构建 system prompt
-    system_prompt = AGENT_SYSTEM_PROMPT + current_news_text
+    system_prompt = prompt_manager.agent_system_prompt + current_news_text
 
     # 构建 Agent
     agent = await build_agent(tools=tools, system_prompt=system_prompt)
@@ -675,6 +659,13 @@ async def agent_chat_stream(req: AgentChatRequest):
                         except (json.JSONDecodeError, TypeError):
                             args = {}
                         yield f"data: {json.dumps({'type': 'action', 'action': {'action': tool_name, **args}}, ensure_ascii=False)}\n\n"
+                    elif tool_name == "generate_article":
+                        output = event.get("data", {}).get("output", "")
+                        try:
+                            args = json.loads(output) if isinstance(output, str) else {}
+                        except (json.JSONDecodeError, TypeError):
+                            args = {}
+                        yield f"data: {json.dumps({'type': 'action', 'action': {'action': 'generate_article', **args}}, ensure_ascii=False)}\n\n"
                     current_tool_name = None
 
             # 保存 AI 回复到数据库
