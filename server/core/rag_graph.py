@@ -171,6 +171,7 @@ class RAGState(dict):
     kb_id: str
     doc_ids: list[str]
     top_k: int
+    web_context: str  # 联网搜索结果，空字符串表示未开启/未取到
 
 
 # ── Nodes ────────────────────────────────────────────────────────
@@ -460,6 +461,11 @@ async def generate(state: dict) -> dict:
     else:
         system_prompt = prompt_manager.kb_rag_system_prompt
         full_system = system_prompt + f"\n\n【知识库内容】\n{truncate_context(context)}"
+
+    # 联网搜索结果作为独立上下文段落追加（与 KB 内容互补）
+    web_context = state.get("web_context", "")
+    if web_context:
+        full_system += f"\n\n【联网搜索结果】\n{web_context}"
 
     llm_messages = [SystemMessage(content=full_system)] + compressed_messages + [HumanMessage(content=query)]
 

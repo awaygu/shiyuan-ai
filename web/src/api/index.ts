@@ -516,8 +516,8 @@ export async function searchKnowledgeBase(kbId: string, query: string, topK = 5)
 }
 
 /** Stream KB RAG chat. */
-export function kbStreamChat(kbId: string, message: string, docIds: string[], callbacks: AgentStreamCallbacks, topK = 5, convId = '') {
-  return consumeAgentSSE(`/api/knowledge/bases/${encodeURIComponent(kbId)}/chat/stream`, { message, doc_ids: docIds, top_k: topK, conv_id: convId }, callbacks)
+export function kbStreamChat(kbId: string, message: string, docIds: string[], callbacks: AgentStreamCallbacks, topK = 5, webSearch = false, convId = '') {
+  return consumeAgentSSE(`/api/knowledge/bases/${encodeURIComponent(kbId)}/chat/stream`, { message, doc_ids: docIds, top_k: topK, web_search: webSearch, conv_id: convId }, callbacks)
 }
 
 /** Stream KB RAG article generation. */

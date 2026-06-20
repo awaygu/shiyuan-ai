@@ -81,6 +81,18 @@
 
     <div class="chat-footer">
       <div class="input-area">
+        <button
+          class="web-search-btn"
+          :class="{ active: webSearchEnabled }"
+          :title="webSearchEnabled ? '联网搜索已开启' : '开启联网搜索'"
+          :disabled="generating"
+          @click="webSearchEnabled = !webSearchEnabled"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </button>
         <el-input
           v-model="chatMessage"
           type="textarea"
@@ -140,6 +152,7 @@ const messages = ref<ChatMessage[]>([
 const messagesRef = ref<HTMLElement | null>(null)
 const chatMessage = ref('')
 const generating = ref(false)
+const webSearchEnabled = ref(false)
 const expandedSources = ref<Set<string>>(new Set())
 const suggestions = ref<string[]>([])
 const loadingSuggestions = ref(false)
@@ -264,6 +277,10 @@ async function sendChat() {
     onSources(sources) {
       messages.value[msgIdx].sources = sources
     },
+    onLoading(message) {
+      messages.value[msgIdx].content = `${message}`
+      scrollToBottom()
+    },
     onPrompt() {},
     onDone() {
       pushDone(msgIdx)
@@ -271,7 +288,7 @@ async function sendChat() {
     onError(err) {
       pushError(msgIdx, `请求失败：${err}`)
     },
-  }, 5, convId)
+  }, 5, webSearchEnabled.value, convId)
 }
 
 function generateArticle(style: StyleType) {
@@ -751,6 +768,42 @@ defineExpose({ generateArticle, loadHistory, clearMessages, loadSuggestions })
 
 .chat-input {
   flex: 1;
+}
+
+.web-search-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s;
+  align-self: flex-end;
+  margin-bottom: 2px;
+}
+
+.web-search-btn:hover:not(:disabled) {
+  background: #e0e7ff;
+  color: #6366f1;
+}
+
+.web-search-btn.active {
+  background: #6366f1;
+  color: #fff;
+}
+
+.web-search-btn.active:hover:not(:disabled) {
+  background: #4f46d5;
+}
+
+.web-search-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .chat-input :deep(.el-textarea__inner) {

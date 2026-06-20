@@ -476,6 +476,7 @@ class KBChatRequest(BaseModel):
     message: str
     doc_ids: list[str] = Field(default_factory=list)
     top_k: int = Field(default=10, ge=1, le=20)
+    web_search: bool = False
 
 
 def _kb_conv_id(kb_id: str) -> str:
@@ -525,6 +526,21 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
         sources_out = []
         rewrite_info = None
 
+        # 联网搜索：开启时先搜索，结果走 web_context state 字段（不拼进 query，避免污染检索）
+        # 始终写入 web_context（含空串）以覆盖 checkpointer 中上一轮残留值，防泄漏
+        web_ctx = ""
+        if req.web_search:
+            from tools.web_search import get_web_search_tool
+            ws_tool = get_web_search_tool()
+            if ws_tool:
+                yield f"data: {json.dumps({'type': 'loading', 'message': '正在联网搜索...'}, ensure_ascii=False)}\n\n"
+                try:
+                    web_ctx = await ws_tool.ainvoke({"query": req.message})
+                except Exception as e:
+                    logger.exception("KB web_search failed: %s", e)
+                    web_ctx = ""  # 优雅降级：KB-only 回答
+        input_state["web_context"] = web_ctx
+
         msg_id = uuid.uuid4().hex[:12]
         await save_message({
             "msg_id": msg_id,
@@ -562,7 +578,10 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                     prompt_parts = [f"[System]\n{system_for_display}"]
                     if doc_meta:
                         prompt_parts.append(f"\n\n{doc_meta}")
-                    prompt_parts.append(f"\n\n【知识库内容】\n{context_text}\n\n[User]\n{req.message}")
+                    prompt_parts.append(f"\n\n【知识库内容】\n{context_text}")
+                    if web_ctx:
+                        prompt_parts.append(f"\n\n【联网搜索结果】\n{web_ctx}")
+                    prompt_parts.append(f"\n\n[User]\n{req.message}")
                     prompt_text = "".join(prompt_parts)
                     if not prompt_sent:
                         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
@@ -582,7 +601,10 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                         prompt_parts = [f"[System]\n{system_for_display}"]
                         if doc_meta:
                             prompt_parts.append(f"\n\n{doc_meta}")
-                        prompt_parts.append(f"\n\n【知识库内容】\n{last_context}\n\n[User]\n{req.message}")
+                        prompt_parts.append(f"\n\n【知识库内容】\n{last_context}")
+                        if web_ctx:
+                            prompt_parts.append(f"\n\n【联网搜索结果】\n{web_ctx}")
+                        prompt_parts.append(f"\n\n[User]\n{req.message}")
                         prompt_text = "".join(prompt_parts)
                         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
                         prompt_sent = True
