@@ -102,15 +102,11 @@ class NewsInterpreter:
         prompt: str | None = None,
     ) -> str:
         news = _news_text(news_list)
-        if task == "interpret":
-            return self.pm.get_interpret_human().format(news_text=news)
-        elif task == "generate":
-            if prompt:
-                return self.pm.generate_with_user_prompt_template.format(
-                    user_prompt=prompt, news_text=news,
-                )
-            return self.pm.get_generate_human().format(news_text=news)
-        return news
+        if task == "generate" and prompt:
+            return self.pm.generate_with_user_prompt_template.format(
+                user_prompt=prompt, news_text=news,
+            )
+        return self.pm.get_news_task_human().format(news_text=news)
 
     def build_prompt_text(
         self,

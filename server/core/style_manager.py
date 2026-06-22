@@ -29,8 +29,7 @@ class PromptManager:
         self._interpret_system: str = ""
         self._generate_systems: dict[StyleType, str] = {}
         self._chat_system: str = ""
-        self._interpret_human: str = ""
-        self._generate_human: str = ""
+        self._news_task_human: str = ""
         self._generate_with_user_prompt: str = ""
         self.chat_template: str = ""
         self.load()
@@ -46,8 +45,7 @@ class PromptManager:
         }
         self._chat_system = _prompts_module.SYSTEM_CHAT
 
-        self._interpret_human = _prompts_module.INTERPRET_HUMAN
-        self._generate_human = _prompts_module.GENERATE_HUMAN
+        self._news_task_human = _prompts_module.NEWS_TASK_HUMAN
         self._generate_with_user_prompt = _prompts_module.GENERATE_WITH_USER_PROMPT
         self.chat_template = _prompts_module.CHAT
 
@@ -79,11 +77,8 @@ class PromptManager:
             )
         return result
 
-    def get_interpret_human(self) -> str:
-        return self._interpret_human
-
-    def get_generate_human(self) -> str:
-        return self._generate_human
+    def get_news_task_human(self) -> str:
+        return self._news_task_human
 
     @property
     def generate_with_user_prompt_template(self) -> str:
@@ -131,18 +126,6 @@ class PromptManager:
         return getattr(_prompts_module, "AGENT_SYSTEM_PROMPT", "")
 
     @property
-    def agent_role_prompt(self) -> str:
-        return getattr(_prompts_module, "AGENT_ROLE_PROMPT", "")
-
-    @property
-    def agent_tools_overview(self) -> str:
-        return getattr(_prompts_module, "AGENT_TOOLS_OVERVIEW", "")
-
-    @property
-    def agent_calling_rules(self) -> str:
-        return getattr(_prompts_module, "AGENT_CALLING_RULES", "")
-
-    @property
     def conversation_summary_prompt(self) -> str:
         return getattr(_prompts_module, "CONVERSATION_SUMMARY_PROMPT", "")
 
@@ -173,6 +156,25 @@ class PromptManager:
     @property
     def kb_style_hints(self) -> dict[str, str]:
         return getattr(_prompts_module, "KB_STYLE_HINTS", {})
+
+
+def build_prompt_display_text(
+    system_prompt: str,
+    message: str,
+    sections: list[tuple[str, str]] | None = None,
+) -> str:
+    """构建前端 prompt 事件展示文本：[System] + 可选中间段落 + [User]。
+
+    sections 为 (label, content) 元组列表；label 为空则只插入 content，
+    content 为空则跳过该段。
+    """
+    parts = [f"[System]\n{system_prompt}"]
+    for label, content in sections or []:
+        if not content:
+            continue
+        parts.append(f"\n\n{label}\n{content}" if label else f"\n\n{content}")
+    parts.append(f"\n\n[User]\n{message}")
+    return "".join(parts)
 
 
 prompt_manager = PromptManager()

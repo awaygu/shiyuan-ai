@@ -16,7 +16,7 @@ from config import NEWS_SOURCES
 from . import deps
 from .interpret import LIMITED_CONTENT_MSG
 from core.interpreter import NewsInterpreter
-from core.style_manager import StyleType, prompt_manager
+from core.style_manager import StyleType, prompt_manager, build_prompt_display_text
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -606,7 +606,7 @@ async def agent_chat_stream(req: AgentChatRequest):
         add_message(conv_id, role="user", content=enhanced_human)
 
         # 发送 prompt 事件
-        prompt_text = f"[System]\n{system_prompt}\n\n[User]\n{enhanced_human}"
+        prompt_text = build_prompt_display_text(system_prompt, enhanced_human)
         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
 
         # 调用 LangGraph Agent

@@ -17,7 +17,7 @@ from config import (
     TEMPERATURE_GENERATE,
     MAX_RAG_CONTEXT_CHARS,
 )
-from core.style_manager import prompt_manager
+from core.style_manager import build_prompt_display_text, prompt_manager
 from database import (
     create_kb,
     load_kbs,
@@ -58,6 +58,26 @@ vs_manager = VectorStoreManager(dim=KB_EMBEDDING_DIM)
 
 
 vs_manager = VectorStoreManager(dim=KB_EMBEDDING_DIM)
+
+
+def _build_rag_prompt_text(
+    system_prompt: str,
+    context: str,
+    message: str,
+    doc_meta: str = "",
+    web_ctx: str = "",
+) -> str:
+    """构建RAG系统提示展示文本（用于前端prompt事件）。"""
+    return build_prompt_display_text(
+        system_prompt,
+        message,
+        [
+            ("", doc_meta),
+            ("【知识库内容】", context),
+            ("【联网搜索结果】", web_ctx),
+        ],
+    )
+
 
 class CreateKBRequest(BaseModel):
     name: str
@@ -575,14 +595,7 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                     intent = output.get("intent", "specific")
                     # 根据意图选择展示的系统提示
                     system_for_display = prompt_manager.kb_rag_summary_system_prompt if intent == "summary" and doc_meta else prompt_manager.kb_rag_system_prompt
-                    prompt_parts = [f"[System]\n{system_for_display}"]
-                    if doc_meta:
-                        prompt_parts.append(f"\n\n{doc_meta}")
-                    prompt_parts.append(f"\n\n【知识库内容】\n{context_text}")
-                    if web_ctx:
-                        prompt_parts.append(f"\n\n【联网搜索结果】\n{web_ctx}")
-                    prompt_parts.append(f"\n\n[User]\n{req.message}")
-                    prompt_text = "".join(prompt_parts)
+                    prompt_text = _build_rag_prompt_text(system_for_display, context_text, req.message, doc_meta, web_ctx)
                     if not prompt_sent:
                         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
                         prompt_sent = True
@@ -598,14 +611,7 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                         intent = (cur_state.values or {}).get("intent", "specific")
                         doc_meta = (cur_state.values or {}).get("doc_meta", "")
                         system_for_display = prompt_manager.kb_rag_summary_system_prompt if intent == "summary" and doc_meta else prompt_manager.kb_rag_system_prompt
-                        prompt_parts = [f"[System]\n{system_for_display}"]
-                        if doc_meta:
-                            prompt_parts.append(f"\n\n{doc_meta}")
-                        prompt_parts.append(f"\n\n【知识库内容】\n{last_context}")
-                        if web_ctx:
-                            prompt_parts.append(f"\n\n【联网搜索结果】\n{web_ctx}")
-                        prompt_parts.append(f"\n\n[User]\n{req.message}")
-                        prompt_text = "".join(prompt_parts)
+                        prompt_text = _build_rag_prompt_text(system_for_display, last_context, req.message, doc_meta, web_ctx)
                         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
                         prompt_sent = True
                         if last_sources and not sources_sent:
@@ -761,7 +767,7 @@ async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
             max_retries=2,
         )
 
-        prompt_text = f"[System]\n{full_system}\n\n[User]\n{human}"
+        prompt_text = build_prompt_display_text(full_system, human)
         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
 
         sources = [{"filename": chunk_data[cid]["filename"], "page": chunk_data[cid].get("page", 0), "score": round(score, 4), "text": chunk_data[cid]["text"], "preview": chunk_data[cid]["text"][:80] + ("..." if len(chunk_data[cid]["text"]) > 80 else "")}
