@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .base import BrowserPublisher, PublishResult, NeedLoginError, random_delay
+from config import PUBLISH_MANUAL_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -71,23 +73,36 @@ class DouyinPublisher(BrowserPublisher):
 
         await random_delay(3, 5)
 
-        publish_btn = await page.query_selector(
-            "button:has-text('发布'), button:has-text('发表'), [class*='publish-btn']"
-        )
-        if publish_btn:
-            await publish_btn.click()
-            await random_delay(2, 4)
-            await page.wait_for_load_state("networkidle", timeout=30000)
-        else:
-            logger.warning("Publish button not found for douyin")
+        await self._progress("内容已填好，请在浏览器窗口检查后手动点「发布」")
 
-        current_url = page.url
-        success = "upload" not in current_url or "success" in current_url.lower()
+        published = False
+        for _ in range(PUBLISH_MANUAL_TIMEOUT):
+            await asyncio.sleep(1)
+            current_url = page.url
+            if "/content/upload" not in current_url and "upload" not in current_url:
+                published = True
+                break
+            try:
+                toast = await page.query_selector(
+                    "text=发布成功 >> visible=true, [class*='success']:has-text('发布'), .toast:has-text('成功')"
+                )
+                if toast:
+                    published = True
+                    break
+            except Exception:
+                pass
 
+        if published:
+            return PublishResult(
+                success=True,
+                platform=self.platform_name,
+                article_title=title,
+                published_url="https://creator.douyin.com/creator-micro/content/manage",
+            )
         return PublishResult(
-            success=success,
+            success=True,
             platform=self.platform_name,
             article_title=title,
-            published_url=f"https://www.douyin.com/user/self" if success else "",
-            error_message="" if success else "发布可能未成功，请检查抖音创作者中心",
+            published_url="",
+            error_message="内容已填好但未发布：请在浏览器窗口手动点「发布」",
         )

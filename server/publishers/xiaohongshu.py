@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
 from .base import BrowserPublisher, PublishResult, NeedLoginError, random_delay
+from config import PUBLISH_MANUAL_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -97,23 +99,27 @@ class XiaohongshuPublisher(BrowserPublisher):
 
         await random_delay(3, 5)
 
-        publish_btn = await page.query_selector(
-            "button:has-text('发布'), button:has-text('发表'), [class*='publish']"
-        )
-        if publish_btn:
-            await publish_btn.click()
-            await random_delay(2, 4)
-            await page.wait_for_load_state("networkidle", timeout=30000)
-        else:
-            logger.warning("Publish button not found for xiaohongshu")
+        await self._progress("内容已填好，请在浏览器窗口检查后手动点「发布」")
 
-        current_url = page.url
-        success = "publish" not in current_url or "success" in current_url.lower()
+        published = False
+        for _ in range(PUBLISH_MANUAL_TIMEOUT):
+            await asyncio.sleep(1)
+            current_url = page.url
+            if "/publish/publish" not in current_url:
+                published = True
+                break
 
+        if published:
+            return PublishResult(
+                success=True,
+                platform=self.platform_name,
+                article_title=title,
+                published_url="https://www.xiaohongshu.com/user/profile/self",
+            )
         return PublishResult(
-            success=success,
+            success=True,
             platform=self.platform_name,
             article_title=title,
-            published_url=f"https://www.xiaohongshu.com/user/profile/self" if success else "",
-            error_message="" if success else "发布可能未成功，请检查小红书创作者后台",
+            published_url="",
+            error_message="内容已填好但未发布：请在浏览器窗口手动点「发布」",
         )

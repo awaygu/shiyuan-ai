@@ -78,8 +78,10 @@ WECHAT_APP_SECRET = os.getenv("WECHAT_APP_SECRET", "")
 
 # Browser automation (Playwright)
 COOKIES_DIR = os.getenv("COOKIES_DIR", str(Path(__file__).parent / "cookies"))
-PUBLISH_HEADLESS = os.getenv("PUBLISH_HEADLESS", "true").lower() == "true"
+PUBLISH_HEADLESS = os.getenv("PUBLISH_HEADLESS", "false").lower() == "true"
 PUBLISH_TIMEOUT = int(os.getenv("PUBLISH_TIMEOUT", "120"))
+# 填好表单后等待用户在浏览器窗口手动点发布的超时（秒）
+PUBLISH_MANUAL_TIMEOUT = int(os.getenv("PUBLISH_MANUAL_TIMEOUT", "600"))
 
 # DashScope
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")

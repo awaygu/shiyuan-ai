@@ -25,8 +25,16 @@
           <el-icon class="is-loading" style="margin-right:4px"><Loading /></el-icon>
           {{ task.progress }}
         </div>
-        <div v-if="task.status === 'completed'" class="task-card-result success">
+        <div v-if="task.status === 'completed' && !task.result?.error_message" class="task-card-result success">
           发布成功
+        </div>
+        <div v-if="task.status === 'completed' && task.result?.error_message" class="task-card-result hint">
+          {{ task.result.error_message }}
+        </div>
+        <div v-if="task.status === 'completed' && task.result?.url" class="task-card-actions">
+          <el-button size="small" type="primary" plain @click="openPlatform(task.result.url, task.platform)">
+            {{ actionLabel(task.platform) }}
+          </el-button>
         </div>
         <div v-if="task.status === 'failed' && task.error" class="task-card-result failed">
           {{ task.error }}
@@ -62,6 +70,14 @@ function statusLabel(status: string): string {
 function statusTagType(status: string): 'info' | 'primary' | 'success' | 'danger' {
   const map: Record<string, any> = { pending: 'info', running: 'primary', completed: 'success', failed: 'danger' }
   return map[status] || 'info'
+}
+
+function actionLabel(platform: string): string {
+  return platform === 'wechat_mp' ? '前往草稿箱' : '前往作品页'
+}
+
+function openPlatform(url: string, platform: string) {
+  window.open(url, '_blank', 'noopener')
 }
 
 const hasDone = computed(() => {
@@ -177,12 +193,20 @@ const hasDone = computed(() => {
   margin-top: 4px;
 }
 
+.task-card-actions {
+  margin-top: 6px;
+}
+
 .task-card-result.success {
   color: #67c23a;
 }
 
 .task-card-result.failed {
   color: #f56c6c;
+}
+
+.task-card-result.hint {
+  color: #909399;
 }
 
 .task-footer {

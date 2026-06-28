@@ -143,7 +143,9 @@ async def _run_publish_task(
 
     if result.success:
         await task_manager.update_task(
-            task.task_id, "completed", "发布成功", result=record,
+            task.task_id, "completed",
+            result.error_message or "发布成功",
+            result=record,
         )
     else:
         await task_manager.update_task(

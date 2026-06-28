@@ -97,6 +97,14 @@ class BrowserPublisher(BasePublisher):
         self.cookies_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()
         self._last_login_error: str = ""
+        self._on_progress = None
+
+    async def _progress(self, msg: str):
+        if self._on_progress:
+            try:
+                await self._on_progress(msg)
+            except Exception:
+                logger.debug("progress callback failed", exc_info=True)
 
     def load_cookies(self) -> dict | None:
         if not self.cookies_path.exists():
@@ -182,6 +190,7 @@ class BrowserPublisher(BasePublisher):
 
     async def publish(self, title: str, content: str, **kwargs) -> PublishResult:
         async with self._lock:
+            self._on_progress = kwargs.get("on_progress")
             cookies = self.load_cookies()
             if not cookies:
                 return PublishResult(

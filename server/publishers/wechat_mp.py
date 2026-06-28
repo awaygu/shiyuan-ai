@@ -383,6 +383,6 @@ class WechatMpPublisher(BasePublisher):
             success=True,
             platform=self.platform_name,
             article_title=title,
-            published_url=f"https://mp.weixin.qq.com",
+            published_url="https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_list&action=list_card",
             extra={"media_id": media_id},
         )

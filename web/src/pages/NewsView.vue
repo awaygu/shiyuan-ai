@@ -17,7 +17,7 @@
       </div>
     </el-header>
 
-    <el-main class="app-main" :style="mainStyle">
+    <el-main class="app-main">
       <div class="two-columns" ref="columnsRef">
         <div
           class="column column-left"
@@ -54,16 +54,13 @@
         </transition>
       </div>
     </el-main>
-
-    <FloatingAgent :offset-right="(showKeywords ? kwWidth + 12 : 0) + (store.showTaskPanel ? taskWidth + 12 : 0)" />
   </el-container>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import NewsList from '@/components/NewsList.vue'
 import NewsDetail from '@/components/NewsDetail.vue'
-import FloatingAgent from '@/components/FloatingAgent.vue'
 import KeywordSettings from '@/components/KeywordSettings.vue'
 import TaskPanel from '@/components/TaskPanel.vue'
 import { useNewsStore } from '@/stores'
@@ -77,11 +74,6 @@ const MIN_LEFT = 260
 const showKeywords = ref(false)
 const kwWidth = ref(320)
 const taskWidth = ref(340)
-
-const mainStyle = computed(() => {
-  if (!store.agentDockedRight) return {}
-  return { paddingRight: (store.agentPanelWidth + 12) + 'px' }
-})
 
 let resizing = false
 let startX = 0

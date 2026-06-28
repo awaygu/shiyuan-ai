@@ -173,8 +173,8 @@
           <span v-if="store.selectedNewsIds.length > 0" class="ctx-tag">已选 {{ store.selectedNewsIds.length }} 条</span>
         </div>
         <div class="toolbar-right">
-          <button :disabled="generating" @click="fetchTrends">热点</button>
-          <button :disabled="generating" @click="openBriefing">简报</button>
+          <button v-if="isNewsPage" :disabled="generating" @click="fetchTrends">热点</button>
+          <button v-if="isNewsPage" :disabled="generating" @click="openBriefing">简报</button>
         </div>
       </div>
       <!-- Input area -->
@@ -239,6 +239,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRoute } from 'vue-router'
 import { useNewsStore } from '@/stores'
 import { streamAgentChat, publishArticle as apiPublishArticle, publishByContent, fetchTrends as apiFetchTrends, compareSources as apiCompareSources, searchNews as apiSearchNews, streamBriefing, listConversations, getConversationMessages, deleteConversation as apiDeleteConversation } from '@/api'
 import type { AgentAction, Conversation } from '@/api'
@@ -249,20 +250,22 @@ import { marked } from 'marked'
 
 const props = withDefaults(defineProps<{ offsetRight?: number }>(), { offsetRight: 0 })
 const store = useNewsStore()
+const route = useRoute()
+const isNewsPage = computed(() => route.name === 'news')
 const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } = useWechatPublish()
 
-const expanded = ref(true)
+const expanded = ref(false)
 const isDragging = ref(false)
 const isResizing = ref(false)
 const resizeDir = ref<'t' | 'b' | 'l' | 'r' | 'tl' | 'tr' | 'bl' | 'br' | null>(null)
 const panelPos = ref({ x: 0, y: 0 })
-const panelW = ref(440)
-const panelH = ref(580)
+const panelW = ref(380)
+const panelH = ref(620)
 const dragOffset = ref({ x: 0, y: 0 })
 const resizeStart = ref({ x: 0, y: 0, w: 0, h: 0, px: 0, py: 0 })
 const dockedRight = ref(true)
-const preDockW = ref(440)
-const preDockH = ref(580)
+const preDockW = ref(380)
+const preDockH = ref(620)
 const undocking = ref(false)
 
 const SNAP_THRESHOLD = 20
@@ -302,12 +305,13 @@ const messages = ref<ChatMessage[]>([
 const panelStyle = computed(() => {
   if (dockedRight.value) {
     return {
-      right: '0px',
+      right: '24px',
       left: 'auto',
-      top: '0px',
+      bottom: '24px',
+      top: 'auto',
       width: panelW.value + 'px',
-      height: '100vh',
-      borderRadius: '0',
+      height: panelH.value + 'px',
+      borderRadius: '12px',
     }
   }
   return {
@@ -728,8 +732,8 @@ function startDrag(e: MouseEvent) {
     preDockW.value = panelW.value
     preDockH.value = panelH.value
     const vx = window.innerWidth
-    panelPos.value = { x: vx - panelW.value, y: 0 }
-    panelH.value = preDockH.value
+    const vy = window.innerHeight
+    panelPos.value = { x: vx - panelW.value - 24, y: vy - panelH.value - 24 }
     dockedRight.value = false
   }
   isDragging.value = true
@@ -749,8 +753,10 @@ function startResize(e: MouseEvent, dir: 't' | 'b' | 'l' | 'r' | 'tl' | 'tr' | '
   isResizing.value = true
   resizeDir.value = dir
   let actualPx = panelPos.value.x
+  let actualPy = panelPos.value.y
   if (dockedRight.value) {
-    actualPx = window.innerWidth - panelW.value
+    actualPx = window.innerWidth - panelW.value - 24
+    actualPy = window.innerHeight - panelH.value - 24
   }
   resizeStart.value = {
     x: e.clientX,
@@ -758,7 +764,7 @@ function startResize(e: MouseEvent, dir: 't' | 'b' | 'l' | 'r' | 'tl' | 'tr' | '
     w: panelW.value,
     h: panelH.value,
     px: actualPx,
-    py: dockedRight.value ? 0 : panelPos.value.y,
+    py: actualPy,
   }
   const cursors: Record<string, string> = {
     t: 'n-resize', b: 's-resize', l: 'w-resize', r: 'e-resize',
@@ -785,15 +791,25 @@ function onMouseMove(e: MouseEvent) {
 
     if (dockedRight.value) {
       let newW = resizeStart.value.w
+      let newH = resizeStart.value.h
       if (dir === 'l' || dir === 'tl' || dir === 'bl') {
         newW = Math.max(MIN_W, resizeStart.value.w - dx)
       }
       if (dir === 'r' || dir === 'tr' || dir === 'br') {
         newW = Math.max(MIN_W, resizeStart.value.w + dx)
       }
+      if (dir === 't' || dir === 'tl' || dir === 'tr') {
+        newH = Math.max(MIN_H, resizeStart.value.h - dy)
+      }
+      if (dir === 'b' || dir === 'bl' || dir === 'br') {
+        newH = Math.max(MIN_H, resizeStart.value.h + dy)
+      }
       const vx = window.innerWidth
-      newW = Math.min(newW, vx)
+      const vy = window.innerHeight
+      newW = Math.min(newW, vx - 24)
+      newH = Math.min(newH, vy - 24)
       panelW.value = Math.max(MIN_W, newW)
+      panelH.value = Math.max(MIN_H, newH)
       return
     }
 
@@ -953,11 +969,6 @@ onBeforeUnmount(() => {
   transition: none;
 }
 
-.agent-panel.docked {
-  border-radius: 0;
-  transition: none;
-}
-
 .agent-panel.undocking {
   transition: left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease, border-radius 0.3s ease;
 }
@@ -981,7 +992,8 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   height: 48px;
   padding: 0 16px;
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  background: #fff;
+  border-bottom: 1px solid #eef0f5;
   cursor: move;
   flex-shrink: 0;
 }
@@ -990,9 +1002,9 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
 }
 
 .header-actions {
@@ -1008,14 +1020,14 @@ onBeforeUnmount(() => {
   height: 28px;
   border-radius: 6px;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
+  color: #94a3b8;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .header-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: #eef2ff;
+  color: #6366f1;
 }
 
 .panel-body {
