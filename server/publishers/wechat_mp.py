@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from .base import BasePublisher, PublishResult, NeedLoginError
+from .image_archive import archive_key, try_read_archive_bytes, write_archive
 
 logger = logging.getLogger(__name__)
 
@@ -263,10 +264,16 @@ class WechatMpPublisher(BasePublisher):
             try:
                 from config import IMAGE_GEN_ENABLED, DASHSCOPE_API_KEY, IMAGE_GEN_MODEL
                 if IMAGE_GEN_ENABLED and DASHSCOPE_API_KEY:
-                    from core.image_generator import ImageGenerator
-                    gen = ImageGenerator(DASHSCOPE_API_KEY, IMAGE_GEN_MODEL)
-                    await _progress("正在生成 AI 封面图...")
-                    cover_bytes = await gen.generate_cover_image(title, content)
+                    cover_key = archive_key("cover", title)
+                    cover_bytes = try_read_archive_bytes(cover_key)
+                    if cover_bytes:
+                        await _progress("复用已存档的封面图...")
+                    else:
+                        from core.image_generator import ImageGenerator
+                        gen = ImageGenerator(DASHSCOPE_API_KEY, IMAGE_GEN_MODEL)
+                        await _progress("正在生成 AI 封面图...")
+                        cover_bytes = await gen.generate_cover_image(title, content)
+                        write_archive(cover_key, cover_bytes)
                     await _progress("正在上传封面图到微信...")
                     thumb_media_id = await self.upload_thumb(token, image_bytes=cover_bytes)
                     logger.info("AI cover image uploaded: media_id=%s", thumb_media_id)
@@ -301,12 +308,34 @@ class WechatMpPublisher(BasePublisher):
                     gen = ImageGenerator(DASHSCOPE_API_KEY, IMAGE_GEN_MODEL)
                     sections = split_by_headings(content)
                     if sections:
-                        await _progress(f"正在生成 {len(sections)} 张正文插图...")
-                        tasks = [
-                            gen.generate_section_image(s.title, s.text)
-                            for s in sections
-                        ]
-                        images = await asyncio.gather(*tasks, return_exceptions=True)
+                        # 先查存档，未命中的才生成
+                        images: list[bytes | Exception] = []
+                        to_generate: list[tuple[int, Section]] = []
+                        for i, s in enumerate(sections):
+                            inline_key = archive_key("inline", s.title or "", s.text)
+                            cached = try_read_archive_bytes(inline_key)
+                            if cached:
+                                images.append(cached)
+                            else:
+                                images.append(None)  # placeholder
+                                to_generate.append((i, s, inline_key))
+
+                        if to_generate:
+                            await _progress(f"正在生成 {len(to_generate)} 张正文插图（{len(sections)} 节，复用 {len(sections) - len(to_generate)} 张）...")
+                            gen_tasks = [
+                                gen.generate_section_image(s.title, s.text)
+                                for _, s, _ in to_generate
+                            ]
+                            gen_results = await asyncio.gather(*gen_tasks, return_exceptions=True)
+                            for (idx, _, key), result in zip(to_generate, gen_results):
+                                if isinstance(result, Exception):
+                                    images[idx] = result
+                                    logger.warning("Section image generation failed: %s", result)
+                                else:
+                                    images[idx] = result
+                                    write_archive(key, result)
+                        else:
+                            await _progress(f"复用全部 {len(sections)} 张正文插图...")
 
                         heading_pattern = re.compile(r'^(<h[23]>.*?</h[23]>)', re.MULTILINE)
                         parts = heading_pattern.split(html_content)
@@ -316,7 +345,7 @@ class WechatMpPublisher(BasePublisher):
                             new_parts.append(part)
                             if heading_pattern.match(part) and section_idx < len(images):
                                 img = images[section_idx]
-                                if not isinstance(img, Exception):
+                                if isinstance(img, bytes):
                                     try:
                                         wechat_url = await self.token_manager.upload_image_from_bytes(img)
                                         new_parts.append(f'<p><img src="{wechat_url}" style="max-width:100%;border-radius:8px;margin:8px 0;"/></p>')

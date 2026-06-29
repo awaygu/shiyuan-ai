@@ -51,3 +51,6 @@ specs/*.md
 interview/
 .claude/
 .opencode/
+
+# 调试
+debug_screenshots/

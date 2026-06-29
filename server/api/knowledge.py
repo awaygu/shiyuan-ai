@@ -626,7 +626,9 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                         yield f"data: {data}\n\n"
 
             if not prompt_sent:
-                yield f"data: {json.dumps({'type': 'prompt', 'content': f'[User]\\n{req.message}'}, ensure_ascii=False)}\n\n"
+                # 兜底：未触发流式事件时补充 user prompt（反斜杠提取到变量，规避 Py3.11 f-string 限制）
+                user_prompt = f"[User]\n{req.message}"
+                yield f"data: {json.dumps({'type': 'prompt', 'content': user_prompt}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
@@ -710,6 +712,13 @@ async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
         raise HTTPException(400, "Knowledge base is empty. Please upload documents first.")
 
     query = req.message or "总结知识库核心内容"
+
+    # 确保生成会话存在（save_message 需要外键引用）
+    conv_id = _kb_conv_id(kb_id)
+    existing_convs = await load_conversations(kb_id)
+    if not any(c["conv_id"] == conv_id for c in existing_convs):
+        await create_conversation({"conv_id": conv_id, "kb_id": kb_id, "title": kb["name"]})
+
     try:
         query_vec = await embedding_client.embed_query_async(query)
     except Exception as e:
@@ -779,8 +788,6 @@ async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
             SystemMessage(content=full_system),
             HumanMessage(content=human),
         ]
-
-        conv_id = _kb_conv_id(kb_id)
 
         full_content = ""
         try:

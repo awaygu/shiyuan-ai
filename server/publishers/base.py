@@ -192,19 +192,34 @@ class BrowserPublisher(BasePublisher):
         async with self._lock:
             self._on_progress = kwargs.get("on_progress")
             cookies = self.load_cookies()
+
+            # 未登录：自动弹出浏览器窗口让用户扫码，成功后继续发布
             if not cookies:
-                return PublishResult(
-                    success=False,
-                    platform=self.platform_name,
-                    article_title=title,
-                    need_login=True,
-                    error_message="Not logged in, please scan QR code first",
-                )
+                await self._progress(f"未登录{self.platform_name}，正在打开浏览器窗口，请扫码登录...")
+                login_success = await self.do_login()
+                if not login_success:
+                    return PublishResult(
+                        success=False,
+                        platform=self.platform_name,
+                        article_title=title,
+                        need_login=True,
+                        error_message=self._last_login_error or "登录失败或超时，请重试",
+                    )
+                cookies = self.load_cookies()
+                if not cookies:
+                    return PublishResult(
+                        success=False,
+                        platform=self.platform_name,
+                        article_title=title,
+                        need_login=True,
+                        error_message="登录成功但无法读取 cookies，请重试",
+                    )
+                await self._progress(f"{self.platform_name}登录成功，继续发布...")
 
             try:
                 return await asyncio.to_thread(
                     _run_playwright,
-                    self._publish_impl(cookies, title, content),
+                    self._publish_impl(cookies, title, content, **kwargs),
                 )
             except Exception as e:
                 return PublishResult(
@@ -214,7 +229,7 @@ class BrowserPublisher(BasePublisher):
                     error_message=f"Browser error: {e}",
                 )
 
-    async def _publish_impl(self, cookies, title, content):
+    async def _publish_impl(self, cookies, title, content, **kwargs):
         from playwright.async_api import async_playwright
         async with async_playwright() as pw:
             headless = PUBLISH_HEADLESS
@@ -223,7 +238,7 @@ class BrowserPublisher(BasePublisher):
             page = await context.new_page()
 
             try:
-                result = await self._do_publish(page, title, content)
+                result = await self._do_publish(page, title, content, **kwargs)
 
                 storage_state = await context.storage_state()
                 self.save_cookies(storage_state)
@@ -248,5 +263,5 @@ class BrowserPublisher(BasePublisher):
             finally:
                 await browser.close()
 
-    async def _do_publish(self, page, title: str, content: str) -> PublishResult:
+    async def _do_publish(self, page, title: str, content: str, **kwargs) -> PublishResult:
         raise NotImplementedError
