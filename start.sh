@@ -78,7 +78,7 @@ BACKEND_PID=$!
 cd "$SCRIPT_DIR"
 
 # ── 启动前端 ──
-echo "[前端] 启动 Vite 开发服务器 (http://localhost:3000) ..."
+echo "[前端] 启动 Vite 开发服务器 (http://localhost:8088) ..."
 cd web
 nohup npm run dev > /tmp/shiyuan-frontend.log 2>&1 &
 FRONTEND_PID=$!
@@ -88,7 +88,7 @@ echo
 echo "========================================"
 echo "  服务已启动！"
 echo "  后端: http://localhost:8000"
-echo "  前端: http://localhost:3000"
+echo "  前端: http://localhost:8088"
 echo "  后端日志: /tmp/shiyuan-backend.log"
 echo "  前端日志: /tmp/shiyuan-frontend.log"
 echo "  停止服务: kill $BACKEND_PID $FRONTEND_PID"

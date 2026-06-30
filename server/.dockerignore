@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.local
+*.db
+*.db*
+data/
+uploads/
+cookies/
+*.log
+Dockerfile
+.dockerignore

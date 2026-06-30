@@ -80,14 +80,14 @@ echo [后端] 启动 FastAPI 服务 (http://localhost:8000) ...
 start "识渊-后端" cmd /k "cd /d %~dp0server && venv\Scripts\activate && python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload"
 
 :: ── 启动前端 ──
-echo [前端] 启动 Vite 开发服务器 (http://localhost:3000) ...
+echo [前端] 启动 Vite 开发服务器 (http://localhost:8088) ...
 start "识渊-前端" cmd /k "cd /d %~dp0web && npm run dev"
 
 echo.
 echo ========================================
 echo   服务已启动！
 echo   后端: http://localhost:8000
-echo   前端: http://localhost:3000
+echo   前端: http://localhost:8088
 echo ========================================
 echo.
 timeout /t 3 >nul

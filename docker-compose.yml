@@ -1,0 +1,62 @@
+services:
+  # ── 后端 API (FastAPI + Playwright) ──
+  backend:
+    build: ./server
+    container_name: shiyuan-backend
+    restart: unless-stopped
+    env_file:
+      - path: ./server/.env
+        required: false
+    environment:
+      # 容器内通过 Docker 网络访问 NewsNow
+      - NEWSNOW_API_URL=http://newsnow:4444/api/s
+      # 持久化目录统一到 /app/data，便于卷挂载
+      - UPLOAD_DIR=/app/data/uploads
+      - COOKIES_DIR=/app/data/cookies
+      - MEMORY_DB_PATH=/app/data/agent_memory.db
+      - KB_RAG_MEMORY_DB_PATH=/app/data/rag_memory.db
+    volumes:
+      - shiyuan_data:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      - newsnow
+
+  # ── 前端 (Nginx 静态服务 + API 反代) ──
+  web:
+    build: ./web
+    container_name: shiyuan-web
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    depends_on:
+      - backend
+
+  # ── NewsNow 新闻聚合服务 ──
+  newsnow:
+    image: ghcr.io/ourongxing/newsnow:latest
+    container_name: newsnow-local
+    ports:
+      - "127.0.0.1:4444:4444"
+    volumes:
+      - newsnow_data:/usr/app/.data
+    environment:
+      - HOST=0.0.0.0
+      - PORT=4444
+      - NODE_ENV=production
+      - ENABLE_CACHE=true
+      - INIT_TABLE=true
+      - DISABLE_LOGIN=true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    restart: unless-stopped
+
+volumes:
+  shiyuan_data:
+    name: shiyuan_data
+  newsnow_data:
+    name: newsnow_data

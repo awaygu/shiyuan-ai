@@ -236,7 +236,7 @@ sequenceDiagram
 
 - **Python** >= 3.10
 - **Node.js** >= 18
-- **Docker** >= 20.10（可选，用于 NewsNow 新闻源）
+- **Docker** >= 20.10 + Docker Compose v2（推荐，一键部署全部服务）
 
 ### 1. 配置环境变量
 
@@ -255,15 +255,42 @@ cp server/.env.example server/.env
 | `MOONSHOT_API_KEY` | Kimi 联网搜索（可选） |
 | `TAVILY_API_KEY` | Tavily 联网搜索（可选） |
 
-### 2. 启动 NewsNow（可选）
+### 2. Docker 部署（推荐）
+
+一条命令启动全部服务（后端 + 前端 + NewsNow）：
 
 ```bash
-docker compose -f docker-compose.newsnow.yml up -d
+docker compose up -d
 ```
 
-如不启动，后端自动 fallback 到公共实例。
+首次启动会自动构建镜像（后端需安装 Playwright Chromium，耗时较长）。
 
-### 3. 一键启动
+**常用命令：**
+
+```bash
+# 查看日志
+docker compose logs -f backend
+
+# 停止服务
+docker compose down
+
+# 代码变更后重新构建
+docker compose build && docker compose up -d
+```
+
+**服务架构：**
+
+| 容器 | 说明 | 端口 |
+|------|------|------|
+| `shiyuan-web` | Nginx 静态文件 + API 反代 + SSE 支持 | 8088 → 80 |
+| `shiyuan-backend` | FastAPI + Playwright Chromium | 8000 |
+| `newsnow-local` | 新闻聚合服务（Docker 网络内部访问） | 4444 |
+
+数据通过命名卷 `shiyuan_data` 持久化（数据库、上传文件、Cookies），`docker compose down` 不会丢失数据。
+
+> 如仅单独启动 NewsNow 新闻源（本地开发用），可执行 `docker compose -f docker-compose.newsnow.yml up -d`，后端会自动 fallback 到公共实例。
+
+### 3. 本地开发启动
 
 **Windows：**
 ```powershell
@@ -275,7 +302,7 @@ docker compose -f docker-compose.newsnow.yml up -d
 chmod +x start.sh && ./start.sh
 ```
 
-### 4. 手动启动
+或手动启动：
 
 **后端：**
 ```bash
@@ -296,11 +323,11 @@ npm run dev
 
 ### 访问地址
 
-| 服务 | 地址 |
-|------|------|
-| 前端页面 | `http://localhost:3000` |
-| 后端 API | `http://localhost:8000` |
-| API 文档 | `http://localhost:8000/docs` |
+| 服务 | Docker 部署 | 本地开发 |
+|------|-------------|----------|
+| 前端页面 | `http://localhost:8088` | `http://localhost:8088` |
+| 后端 API | `http://localhost:8000` | `http://localhost:8000` |
+| API 文档 | `http://localhost:8000/docs` | `http://localhost:8000/docs` |
 
 ---
 
