@@ -87,7 +87,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { marked } from 'marked'
+import { renderSafeMarkdown } from '@/utils/markdown'
 import { useNewsStore } from '@/stores'
 import { STYLE_LABELS, PLATFORM_LABELS } from '@/types'
 import type { ImagePublishOptions } from '@/composables/useWechatPublish'
@@ -129,7 +129,7 @@ function formatTime(iso: string): string {
 }
 
 function renderMarkdown(text: string): string {
-  return marked.parse(text, { async: false }) as string
+  return renderSafeMarkdown(text)
 }
 
 async function handlePublish(

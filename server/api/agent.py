@@ -7,6 +7,7 @@ import logging
 import re
 from collections import Counter
 from datetime import datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -264,7 +265,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
     @tool
     async def search_knowledge_base(query: str, top_k: int = 5) -> str:
         """搜索用户上传的知识库文档，查找与查询最相关的文档片段。当用户提到知识库、文档、资料、上传的文件等内容时调用此工具。"""
-        from routers.knowledge import kb_search_internal
+        from api.knowledge import kb_search_internal
         return await kb_search_internal(query, top_k)
 
     @tool
@@ -290,7 +291,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
 
         resolved_style = deps.resolve_style(style)
         article = await deps.interpreter.generate_article(items, resolved_style, title, prompt=prompt)
-        article["article_id"] = f"art_{len(deps.article_store) + 1}"
+        article["article_id"] = f"art_{uuid4().hex[:12]}"
 
         async with deps.article_lock:
             deps.article_store.append(article)
@@ -557,7 +558,7 @@ async def agent_chat_stream(req: AgentChatRequest):
     if is_new_conversation:
         # 用用户消息前 20 字作为标题
         title = req.message[:20] + ("..." if len(req.message) > 20 else "")
-        conv = create_conversation(title=title)
+        conv = await asyncio.to_thread(create_conversation, title=title)
         conv_id = conv["id"]
 
     current_news_text = ""
@@ -603,7 +604,7 @@ async def agent_chat_stream(req: AgentChatRequest):
             enhanced_human = human
 
         # 保存用户消息到数据库
-        add_message(conv_id, role="user", content=enhanced_human)
+        await asyncio.to_thread(add_message, conv_id, role="user", content=enhanced_human)
 
         # 发送 prompt 事件
         prompt_text = build_prompt_display_text(system_prompt, enhanced_human)
@@ -670,14 +671,14 @@ async def agent_chat_stream(req: AgentChatRequest):
 
             # 保存 AI 回复到数据库
             if full_response:
-                add_message(conv_id, role="assistant", content=full_response)
+                await asyncio.to_thread(add_message, conv_id, role="assistant", content=full_response)
 
         except Exception as e:
             logger.exception("Agent stream failed: %s", e)
             error_msg = f"处理失败：{e}"
             yield f"data: {json.dumps({'type': 'error', 'message': error_msg}, ensure_ascii=False)}\n\n"
             # 保存错误信息到数据库
-            add_message(conv_id, role="assistant", content=error_msg)
+            await asyncio.to_thread(add_message, conv_id, role="assistant", content=error_msg)
 
         yield "data: [DONE]\n\n"
 

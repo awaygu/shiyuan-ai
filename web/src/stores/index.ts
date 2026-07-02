@@ -69,8 +69,7 @@ export const useNewsStore = defineStore('news', () => {
     try {
       const src = source ?? currentSource.value
       if (source !== undefined) currentSource.value = source
-      refreshNewsSource(currentSource.value)
-      await new Promise(r => setTimeout(r, 2000))
+      await refreshNewsSource(currentSource.value)
       const { items } = await fetchNews(currentSource.value, 0, 100)
       newsItems.value = items
     } finally {
@@ -82,8 +81,7 @@ export const useNewsStore = defineStore('news', () => {
     if (loadingMore.value || loading.value) return
     loadingMore.value = true
     try {
-      refreshNewsSource(currentSource.value)
-      await new Promise(r => setTimeout(r, 2000))
+      await refreshNewsSource(currentSource.value)
       const { items } = await fetchNews(currentSource.value, 0, 100)
       const existingIds = new Set(newsItems.value.map((n) => n.news_id))
       const newItems = items.filter((n) => !existingIds.has(n.news_id))
@@ -98,8 +96,7 @@ export const useNewsStore = defineStore('news', () => {
   async function refreshCurrentSource() {
     loading.value = true
     try {
-      refreshNewsSource(currentSource.value)
-      await new Promise(r => setTimeout(r, 2000))
+      await refreshNewsSource(currentSource.value)
       const { items } = await fetchNews(currentSource.value, 0, 100)
       newsItems.value = items
     } finally {

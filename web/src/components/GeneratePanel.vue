@@ -83,7 +83,7 @@ import { useNewsStore } from '@/stores'
 import { STYLE_LABELS } from '@/types'
 import type { StyleType } from '@/types'
 import { streamGenerateArticle } from '@/api'
-import { marked } from 'marked'
+import { renderSafeMarkdown } from '@/utils/markdown'
 
 const store = useNewsStore()
 const previewRef = ref<HTMLElement | null>(null)
@@ -101,7 +101,7 @@ const currentStyle = computed({
 })
 
 function renderMarkdown(text: string): string {
-  return marked.parse(text, { async: false }) as string
+  return renderSafeMarkdown(text)
 }
 
 function getStyleLabel(style: string): string {

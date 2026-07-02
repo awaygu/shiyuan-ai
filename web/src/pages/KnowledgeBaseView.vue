@@ -63,15 +63,22 @@
         <button v-if="!showSidebar" class="expand-sidebar-btn" @click="showSidebar = true" title="展开文件管理">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <KBChatPanel ref="chatPanelRef" :kb-id="kbId" @clear-conv="onClearConv" />
+        <KBChatPanel ref="chatPanelRef" :kb-id="kbId" @clear-conv="onClearConv" @generating-change="kbGenerating = $event" />
       </div>
 
       <div
         class="resize-handle resize-handle-right"
+        v-if="!actionsCollapsed"
         @mousedown="startResize('right', $event)"
       ></div>
-      <div class="kb-actions" :style="{ width: actionsWidth + 'px' }">
-        <KBActionPanel :kb-id="kbId" @generate="onGenerate" />
+      <div class="kb-actions" :style="{ width: (actionsCollapsed ? COLLAPSED_ACTIONS_WIDTH : actionsWidth) + 'px', overflow: actionsCollapsed ? 'visible' : 'hidden' }">
+        <KBActionPanel
+          :kb-id="kbId"
+          :generating="kbGenerating"
+          :collapsed="actionsCollapsed"
+          @generate="onGenerate"
+          @toggle-collapse="actionsCollapsed = !actionsCollapsed"
+        />
       </div>
 
       <transition name="slide">
@@ -99,9 +106,12 @@ const props = defineProps<{ kbId: string }>()
 const store = useNewsStore()
 const chatPanelRef = ref<InstanceType<typeof KBChatPanel> | null>(null)
 const showSidebar = ref(true)
+const kbGenerating = ref(false)
 
 const sidebarWidth = ref(450)
 const actionsWidth = ref(280)
+const actionsCollapsed = ref(false)
+const COLLAPSED_ACTIONS_WIDTH = 56
 const taskWidth = ref(340)
 const resizing = ref<'left' | 'right' | null>(null)
 const resizeStartX = ref(0)

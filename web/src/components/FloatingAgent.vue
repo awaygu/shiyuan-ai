@@ -246,7 +246,7 @@ import type { AgentAction, Conversation } from '@/api'
 import type { ImagePublishOptions } from '@/composables/useWechatPublish'
 import { useWechatPublish } from '@/composables/useWechatPublish'
 import WechatImageOptionsDialog from '@/components/WechatImageOptionsDialog.vue'
-import { marked } from 'marked'
+import { renderSafeMarkdown } from '@/utils/markdown'
 
 const props = withDefaults(defineProps<{ offsetRight?: number }>(), { offsetRight: 0 })
 const store = useNewsStore()
@@ -340,7 +340,7 @@ function closePanel() {
 }
 
 function renderMarkdown(text: string): string {
-  return marked.parse(text, { async: false }) as string
+  return renderSafeMarkdown(text)
 }
 
 function renderMsgHtml(msg: ChatMessage): string {

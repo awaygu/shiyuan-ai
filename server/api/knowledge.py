@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -54,9 +55,6 @@ SSE_HEADERS = {
 embedding_client = DashScopeEmbedding()
 chunker = TextChunker()
 loader = DocumentLoader()
-vs_manager = VectorStoreManager(dim=KB_EMBEDDING_DIM)
-
-
 vs_manager = VectorStoreManager(dim=KB_EMBEDDING_DIM)
 
 
@@ -490,6 +488,159 @@ async def save_msg(kb_id: str, conv_id: str, req: SaveMessageRequest):
     return {"msg_id": msg_id}
 
 
+STYLE_LABELS = {"xiaohongshu": "小红书", "wechat_mp": "微信公众号", "douyin": "抖音"}
+STYLE_KEYWORDS = {
+    "xiaohongshu": ["小红书", "红薯", "xhs"],
+    "wechat_mp": ["公众号", "微信", "微信公众号", "公众平台"],
+    "douyin": ["抖音", "抖", "douyin"],
+}
+_ARTICLE_INTENT_RE = re.compile(
+    r"(?:生成|写|来|做|创作|出一?)\s*.{0,8}(?:文章|帖子|文案|笔记|内容|脚本|稿件)|"
+    r"(?:文章|帖子|文案|笔记|内容|脚本|稿件).{0,5}(?:生成|写|来|做|创作|出一?)",
+    re.IGNORECASE,
+)
+
+
+def _detect_article_intent(message: str) -> tuple[str | None, str]:
+    """检测用户是否想在聊天中生成文章。
+
+    返回 (style, query)。style 为 None 表示不是生成请求。
+    """
+    if not _ARTICLE_INTENT_RE.search(message):
+        return None, message
+
+    style = "wechat_mp"  # 默认公众号
+    for style_code, keywords in STYLE_KEYWORDS.items():
+        if any(kw in message for kw in keywords):
+            style = style_code
+            break
+
+    return style, message
+
+
+def _style_hint(style: str) -> str:
+    hints = {
+        "xiaohongshu": "请用小红书风格生成：emoji开头标题、短段落口语化、关键数字用类比、结尾互动引导+话题标签、800字以内",
+        "wechat_mp": "请用公众号风格生成：简洁有力标题、开头用数据切入、分2-4节含事实+逻辑+数据、影响研判、前瞻判断、1200-1800字",
+        "douyin": "请用抖音风格生成：极简数字标题、短平快每句不超20字、3个要点节奏感、数字口语化、200-300字",
+    }
+    return hints.get(style, "")
+
+
+async def _stream_kb_article(
+    kb_id: str,
+    query: str,
+    style: str,
+    doc_ids: list[str],
+    top_k: int,
+    conv_id: str,
+):
+    """共享知识库文章生成流式逻辑。
+
+    Yields SSE data lines. Caller should wrap in StreamingResponse.
+    生成完成后会自动将 assistant 消息以 type='article' 写入 kb_messages。
+    """
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    vector_store = vs_manager.get(kb_id)
+    if vector_store.total_vectors == 0:
+        yield f"data: {json.dumps({'type': 'error', 'message': '知识库为空，请先上传文档'}, ensure_ascii=False)}\n\n"
+        return
+
+    # 确保会话存在
+    existing_convs = await load_conversations(kb_id)
+    if not any(c["conv_id"] == conv_id for c in existing_convs):
+        kb = await load_kb(kb_id)
+        title = kb["name"] if kb else "知识库会话"
+        await create_conversation({"conv_id": conv_id, "kb_id": kb_id, "title": title})
+
+    try:
+        query_vec = await embedding_client.embed_query_async(query)
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Embedding failed: {e}'}, ensure_ascii=False)}\n\n"
+        return
+
+    hits = vector_store.search(query_vec, top_k=top_k, doc_ids=doc_ids or None)
+    if not hits:
+        chunk_data = {}
+        filtered_hits = []
+    else:
+        chunk_ids = [cid for cid, _ in hits]
+        score_map = {cid: score for cid, score in hits}
+        chunk_data = await load_kb_chunk_texts(chunk_ids)
+        filtered_hits = [(cid, score_map[cid]) for cid in chunk_ids if cid in chunk_data]
+
+    context_parts = []
+    for idx, (cid, _) in enumerate(filtered_hits, start=1):
+        cd = chunk_data[cid]
+        page_info = f", 第{cd['page']}页" if cd.get("page", 0) > 0 else ""
+        context_parts.append(f"[来源{idx}: {cd['filename']}{page_info}]\n{cd['text']}")
+
+    context_text = "\n\n".join(context_parts) if context_parts else "（未检索到相关内容）"
+    if len(context_text) > MAX_RAG_CONTEXT_CHARS:
+        context_text = context_text[:MAX_RAG_CONTEXT_CHARS] + "\n\n...（内容过长，已截断）"
+
+    full_system = prompt_manager.kb_generate_system_prompt + f"\n\n【知识库内容】\n{context_text}"
+    style_label = STYLE_LABELS.get(style, style)
+    human = query or f"请基于知识库内容生成一篇{style_label}风格的文章"
+    hint = _style_hint(style)
+    if hint:
+        human += f"\n\n{hint}"
+
+    llm = ChatOpenAI(
+        model="deepseek-chat",
+        temperature=TEMPERATURE_GENERATE,
+        api_key=LLM_API_KEY,
+        base_url=LLM_BASE_URL,
+        timeout=120,
+        max_retries=2,
+    )
+
+    # 通知前端这是一条可发布的文章消息
+    yield f"data: {json.dumps({'type': 'meta', 'message_type': 'article'}, ensure_ascii=False)}\n\n"
+
+    prompt_text = build_prompt_display_text(full_system, human)
+    yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
+
+    sources = [
+        {
+            "filename": chunk_data[cid]["filename"],
+            "page": chunk_data[cid].get("page", 0),
+            "score": round(score, 4),
+            "text": chunk_data[cid]["text"],
+            "preview": chunk_data[cid]["text"][:80] + ("..." if len(chunk_data[cid]["text"]) > 80 else ""),
+        }
+        for cid, score in filtered_hits
+    ]
+    if sources:
+        yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
+
+    messages = [SystemMessage(content=full_system), HumanMessage(content=human)]
+    full_content = ""
+    try:
+        async for chunk in llm.astream(messages):
+            if chunk.content:
+                full_content += chunk.content
+                data = json.dumps({"type": "chunk", "content": chunk.content}, ensure_ascii=False)
+                yield f"data: {data}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    if full_content:
+        msg_id = uuid.uuid4().hex[:12]
+        await save_message({
+            "msg_id": msg_id,
+            "conv_id": conv_id,
+            "role": "assistant",
+            "content": full_content,
+            "type": "article",
+            "sources": json.dumps(sources, ensure_ascii=False) if sources else "",
+        })
+
+    yield "data: [DONE]\n\n"
+
+
 # ── RAG Chat (SSE stream, with short-term memory) ──────────────
 
 class KBChatRequest(BaseModel):
@@ -497,6 +648,7 @@ class KBChatRequest(BaseModel):
     doc_ids: list[str] = Field(default_factory=list)
     top_k: int = Field(default=10, ge=1, le=20)
     web_search: bool = False
+    conv_id: str = ""
 
 
 def _kb_conv_id(kb_id: str) -> str:
@@ -513,7 +665,7 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
     if vector_store.total_vectors == 0:
         raise HTTPException(400, "Knowledge base is empty. Please upload documents first.")
 
-    conv_id = _kb_conv_id(kb_id)
+    conv_id = req.conv_id or _kb_conv_id(kb_id)
 
     existing_convs = await load_conversations(kb_id)
     if not any(c["conv_id"] == conv_id for c in existing_convs):
@@ -570,6 +722,15 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
             "type": "chat",
             "sources": "",
         })
+
+        # 检测是否在会话中要求生成文章（如"生成一篇小红书文章"）
+        article_style, article_query = _detect_article_intent(req.message)
+        if article_style:
+            style_label = STYLE_LABELS.get(article_style, "")
+            yield f"data: {json.dumps({'type': 'loading', 'message': f'正在生成{style_label}文章...'}, ensure_ascii=False)}\n\n"
+            async for data in _stream_kb_article(kb_id, article_query, article_style, req.doc_ids, req.top_k, conv_id):
+                yield data
+            return
 
         try:
             async for event in rag_graph.astream_events(
@@ -712,105 +873,11 @@ async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
         raise HTTPException(400, "Knowledge base is empty. Please upload documents first.")
 
     query = req.message or "总结知识库核心内容"
-
-    # 确保生成会话存在（save_message 需要外键引用）
     conv_id = _kb_conv_id(kb_id)
-    existing_convs = await load_conversations(kb_id)
-    if not any(c["conv_id"] == conv_id for c in existing_convs):
-        await create_conversation({"conv_id": conv_id, "kb_id": kb_id, "title": kb["name"]})
-
-    try:
-        query_vec = await embedding_client.embed_query_async(query)
-    except Exception as e:
-        raise HTTPException(500, f"Embedding failed: {e}")
-
-    hits = vector_store.search(query_vec, top_k=req.top_k, doc_ids=req.doc_ids or None)
-    if not hits:
-        chunk_data = {}
-        filtered_hits = []
-    else:
-        chunk_ids = [cid for cid, _ in hits]
-        score_map = {cid: score for cid, score in hits}
-        chunk_data = await load_kb_chunk_texts(chunk_ids)
-        filtered_hits = [(cid, score_map[cid]) for cid in chunk_ids if cid in chunk_data]
-
-    context_parts = []
-    for cid, _ in filtered_hits:
-        cd = chunk_data[cid]
-        page_info = f", 第{cd['page']}页" if cd.get("page", 0) > 0 else ""
-        context_parts.append(f"[来源: {cd['filename']}{page_info}]\n{cd['text']}")
-
-    context_text = "\n\n".join(context_parts) if context_parts else "（未检索到相关内容）"
-
-    style_labels = {"xiaohongshu": "小红书", "wechat_mp": "微信公众号", "douyin": "抖音"}
-    style_label = style_labels.get(req.style, req.style)
-
-    context_text = "\n\n".join(context_parts) if context_parts else "（未检索到相关内容）"
-    # 截断过长的上下文
-    if len(context_text) > MAX_RAG_CONTEXT_CHARS:
-        context_text = context_text[:MAX_RAG_CONTEXT_CHARS] + "\n\n...（内容过长，已截断）"
-
-    full_system = prompt_manager.kb_generate_system_prompt + f"\n\n【知识库内容】\n{context_text}"
-
-    style_hints = prompt_manager.kb_style_hints
-
-    style_hints = {
-        "xiaohongshu": "请用小红书风格生成：emoji开头标题、短段落口语化、关键数字用类比、结尾互动引导+话题标签、800字以内",
-        "wechat_mp": "请用公众号风格生成：简洁有力标题、开头用数据切入、分2-4节含事实+逻辑+数据、影响研判、前瞻判断、1200-1800字",
-        "douyin": "请用抖音风格生成：极简数字标题、短平快每句不超20字、3个要点节奏感、数字口语化、200-300字",
-    }
-    human = req.message or f"请基于知识库内容生成一篇{style_label}风格的文章"
-    if req.style in style_hints:
-        human += f"\n\n{style_hints[req.style]}"
 
     async def event_stream():
-        from langchain_openai import ChatOpenAI
-        from langchain_core.messages import SystemMessage, HumanMessage
-
-        llm = ChatOpenAI(
-            model="deepseek-chat",
-            temperature=TEMPERATURE_GENERATE,
-            api_key=LLM_API_KEY,
-            base_url=LLM_BASE_URL,
-            timeout=120,
-            max_retries=2,
-        )
-
-        prompt_text = build_prompt_display_text(full_system, human)
-        yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
-
-        sources = [{"filename": chunk_data[cid]["filename"], "page": chunk_data[cid].get("page", 0), "score": round(score, 4), "text": chunk_data[cid]["text"], "preview": chunk_data[cid]["text"][:80] + ("..." if len(chunk_data[cid]["text"]) > 80 else "")}
-                   for cid, score in filtered_hits]
-        if sources:
-            yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
-
-        messages = [
-            SystemMessage(content=full_system),
-            HumanMessage(content=human),
-        ]
-
-        full_content = ""
-        try:
-            async for chunk in llm.astream(messages):
-                if chunk.content:
-                    full_content += chunk.content
-                    data = json.dumps({"type": "chunk", "content": chunk.content}, ensure_ascii=False)
-                    yield f"data: {data}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
-
-        if full_content:
-            msg_id = uuid.uuid4().hex[:12]
-            await save_message({
-                "msg_id": msg_id,
-                "conv_id": conv_id,
-                "role": "assistant",
-                "content": full_content,
-                "type": "article",
-                "sources": json.dumps(sources, ensure_ascii=False) if sources else "",
-            })
-
-        yield "data: [DONE]\n\n"
+        async for data in _stream_kb_article(kb_id, query, req.style, req.doc_ids, req.top_k, conv_id):
+            yield data
 
     return StreamingResponse(
         event_stream(),

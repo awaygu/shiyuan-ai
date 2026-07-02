@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["publish"])
 
+_running_publish_tasks: set[asyncio.Task] = set()
 _publish_locks: dict[str, asyncio.Lock] = {}
 
 
@@ -78,8 +79,8 @@ async def publish_article(req: PublishRequest):
     clean_title = title[:40] if title else "文章"
     task = await task_manager.create_task("publish", req.platform, clean_title)
 
-    asyncio.create_task(
-        _run_publish_task(
+    task_ref = asyncio.create_task(
+        _safe_run_publish_task(
             task=task,
             publisher=publisher,
             title=title,
@@ -89,8 +90,26 @@ async def publish_article(req: PublishRequest):
             generate_inline_images=req.generate_inline_images,
         )
     )
+    _running_publish_tasks.add(task_ref)
+    task_ref.add_done_callback(_running_publish_tasks.discard)
 
     return {"task_id": task.task_id, "status": "pending"}
+
+
+async def _safe_run_publish_task(*args, **kwargs):
+    """Wrap _run_publish_task to catch initialization/setup errors."""
+    from .tasks import task_manager
+    task = kwargs.get("task") or args[0]
+    try:
+        await _run_publish_task(*args, **kwargs)
+    except Exception as e:
+        logger.exception("Publish task %s failed before completion", task.task_id)
+        await task_manager.update_task(
+            task.task_id,
+            "failed",
+            f"发布任务初始化失败：{e}",
+            error=str(e),
+        )
 
 
 async def _run_publish_task(

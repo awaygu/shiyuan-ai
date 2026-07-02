@@ -315,6 +315,7 @@ export interface AgentStreamCallbacks extends StreamCallbacks {
   onLoadingDone?: () => void
   onSources?: (sources: { filename: string; score: number }[]) => void
   onConversationId?: (id: string) => void
+  onMeta?: (meta: any) => void
 }
 
 /** Stream agent chat (general chat with action detection). */

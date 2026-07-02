@@ -19,6 +19,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from config import (
     LLM_API_KEY,
     LLM_BASE_URL,
+    LLM_MODEL,
     SUMMARY_MODEL,
     SUMMARY_MODEL_BASE_URL,
     SUMMARY_MODEL_API_KEY,
@@ -52,7 +53,7 @@ async def get_checkpointer() -> AsyncSqliteSaver:
 def get_agent_llm() -> ChatOpenAI:
     """获取 Agent 主 LLM。"""
     return ChatOpenAI(
-        model="deepseek-chat",
+        model=LLM_MODEL,
         temperature=TEMPERATURE_ANALYZE,
         api_key=LLM_API_KEY,
         base_url=LLM_BASE_URL,

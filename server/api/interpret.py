@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -84,7 +85,7 @@ async def generate_article(req: GenerateArticleRequest):
 
     style = deps.resolve_style(req.style)
     article = await deps.interpreter.generate_article(items, style, req.title, prompt=req.prompt)
-    article["article_id"] = f"art_{len(deps.article_store) + 1}"
+    article["article_id"] = f"art_{uuid4().hex[:12]}"
 
     async with deps.article_lock:
         deps.article_store.append(article)
@@ -164,7 +165,7 @@ async def generate_article_stream(req: GenerateArticleRequest):
         else:
             req.title = f"深度解读 | {' · '.join(n.get('title', '')[:15] for n in items[:2])}"
 
-    article_id = f"art_{len(deps.article_store) + 1}"
+    article_id = f"art_{uuid4().hex[:12]}"
 
     async def event_stream():
         meta = json.dumps({

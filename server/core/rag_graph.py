@@ -349,10 +349,10 @@ async def retrieve(state: dict) -> dict:
 
     context_parts = []
     sources = []
-    for cid, rrf_score in filtered:
+    for idx, (cid, rrf_score) in enumerate(filtered, start=1):
         cd = chunk_data[cid]
         page_info = f", 第{cd['page']}页" if cd.get("page", 0) > 0 else ""
-        context_parts.append(f"[来源: {cd['filename']}{page_info}]\n{cd['text']}")
+        context_parts.append(f"[来源{idx}: {cd['filename']}{page_info}]\n{cd['text']}")
         sources.append(
             {
                 "filename": cd["filename"],

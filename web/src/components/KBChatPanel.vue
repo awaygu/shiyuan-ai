@@ -29,23 +29,6 @@
           <div v-else class="avatar-user">我</div>
         </div>
         <div class="msg-content">
-          <div v-if="msg.sources && msg.sources.length" class="msg-sources">
-            <div
-              v-for="(s, si) in msg.sources"
-              :key="si"
-              class="source-card"
-              :class="{ expanded: isSourceExpanded(i, si) }"
-            >
-              <div class="source-header" @click="toggleSource(i, si)">
-                <span class="source-file">{{ s.filename }}</span>
-                <span v-if="s.page" class="source-page">P.{{ s.page }}</span>
-                <span class="source-score">{{ (s.score * 100).toFixed(0) }}%</span>
-                <span class="source-toggle">{{ isSourceExpanded(i, si) ? '收起' : '展开' }}</span>
-              </div>
-              <div v-if="isSourceExpanded(i, si)" class="source-full">{{ s.text || s.preview }}</div>
-              <div v-else class="source-preview">{{ s.preview }}</div>
-            </div>
-          </div>
           <div class="msg-bubble" v-html="renderMsgHtml(msg)"></div>
           <div
             v-if="msg.role === 'assistant' && !msg.streaming && msg.content && msg.type === 'article'"
@@ -117,11 +100,24 @@
       @confirm="confirmPublish"
       @cancel="cancelPublish"
     />
+
+    <Teleport to="body">
+      <div
+        v-if="citeTooltip.visible"
+        class="cite-tooltip"
+        :style="{ left: citeTooltip.x + 'px', top: citeTooltip.y + 'px', width: CITE_TIP_WIDTH + 'px' }"
+        @mouseenter="cancelHideCite"
+        @mouseleave="scheduleHideCite"
+      >
+        <div class="cite-tooltip-title">{{ citeTooltip.tip }}</div>
+        <div v-if="citeTooltip.text" class="cite-tooltip-body">{{ citeTooltip.text }}</div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import { useNewsStore } from '@/stores'
@@ -130,10 +126,10 @@ import type { StyleType, KBSource, KBMessage } from '@/types'
 import type { ImagePublishOptions } from '@/composables/useWechatPublish'
 import { useWechatPublish } from '@/composables/useWechatPublish'
 import WechatImageOptionsDialog from '@/components/WechatImageOptionsDialog.vue'
-import { marked } from 'marked'
+import { renderSafeMarkdown } from '@/utils/markdown'
 
 const props = defineProps<{ kbId: string }>()
-defineEmits<{ 'clear-conv': [] }>()
+const emit = defineEmits<{ 'clear-conv': []; 'generating-change': [value: boolean] }>()
 const store = useNewsStore()
 const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } = useWechatPublish()
 
@@ -153,39 +149,49 @@ const messagesRef = ref<HTMLElement | null>(null)
 const chatMessage = ref('')
 const generating = ref(false)
 const webSearchEnabled = ref(false)
-const expandedSources = ref<Set<string>>(new Set())
 const suggestions = ref<string[]>([])
 const loadingSuggestions = ref(false)
 
+watch(generating, (val) => emit('generating-change', val))
+
 watch(() => props.kbId, () => { loadSuggestions() }, { immediate: true })
 
-function sourceKey(msgIdx: number, srcIdx: number): string {
-  return `${msgIdx}-${srcIdx}`
-}
-
-function isSourceExpanded(msgIdx: number, srcIdx: number): boolean {
-  return expandedSources.value.has(sourceKey(msgIdx, srcIdx))
-}
-
-function toggleSource(msgIdx: number, srcIdx: number) {
-  const key = sourceKey(msgIdx, srcIdx)
-  const s = new Set(expandedSources.value)
-  if (s.has(key)) {
-    s.delete(key)
-  } else {
-    s.add(key)
-  }
-  expandedSources.value = s
-}
+onMounted(() => {
+  window.addEventListener('mouseover', onOverBody)
+  window.addEventListener('mouseout', onOutBody)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('mouseover', onOverBody)
+  window.removeEventListener('mouseout', onOutBody)
+  if (_citeHideTimer) clearTimeout(_citeHideTimer)
+})
 
 function renderMarkdown(text: string): string {
-  return marked.parse(text, { async: false }) as string
+  return renderSafeMarkdown(text)
+}
+
+// 将正文中的 [n] 引用编号转换为可悬浮的脚注 sup
+function injectCitations(html: string, sources: KBSource[] | undefined): string {
+  if (!sources || sources.length === 0) return html
+  return html.replace(/\[(\d+)\]/g, (m, numStr: string) => {
+    const idx = parseInt(numStr, 10)
+    if (idx < 1 || idx > sources.length) return m
+    const s = sources[idx - 1]
+    const page = s.page ? ` · 第${s.page}页` : ''
+    const tip = `${s.filename}${page}`
+    return `<sup class="cite-ref" data-tip="${escapeAttr(tip)}" data-text="${escapeAttr(s.text || s.preview || '')}">[${idx}]</sup>`
+  })
+}
+
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 function renderMsgHtml(msg: ChatMessage): string {
   let html = renderMarkdown(msg.content)
+  html = injectCitations(html, msg.sources)
   if (msg.streaming) {
-    const cursor = '<span class="streaming-cursor">▊</span>'
+    const cursor = '<span class="streaming-cursor">|</span>'
     const lastClose = html.lastIndexOf('</')
     if (lastClose > 0) {
       const tagEnd = html.indexOf('>', lastClose)
@@ -195,6 +201,56 @@ function renderMsgHtml(msg: ChatMessage): string {
     }
   }
   return html
+}
+
+// 脚注 tooltip 事件委托 — 锚定到引用编号，悬浮显示，可在 tooltip 上悬停查看长内容
+const citeTooltip = ref<{ visible: boolean; x: number; y: number; tip: string; text: string }>({
+  visible: false, x: 0, y: 0, tip: '', text: '',
+})
+
+let _citeHideTimer: number | null = null
+function scheduleHideCite() {
+  if (_citeHideTimer) clearTimeout(_citeHideTimer)
+  _citeHideTimer = window.setTimeout(() => { citeTooltip.value.visible = false }, 220)
+}
+function cancelHideCite() {
+  if (_citeHideTimer) { clearTimeout(_citeHideTimer); _citeHideTimer = null }
+}
+
+const CITE_TIP_WIDTH = 480
+const CITE_TIP_MAXH = 240
+
+function showCiteFor(el: HTMLElement) {
+  cancelHideCite()
+  const rect = el.getBoundingClientRect()
+  const tip = el.getAttribute('data-tip') || ''
+  const text = el.getAttribute('data-text') || ''
+  // 默认放在引用右侧并顶部对齐；右侧放不下则放左侧
+  let x = rect.right + 6
+  let y = rect.top
+  if (x + CITE_TIP_WIDTH > window.innerWidth - 8) {
+    x = rect.left - CITE_TIP_WIDTH - 6
+  }
+  if (x < 8) x = 8
+  if (y + CITE_TIP_MAXH > window.innerHeight - 8) {
+    y = window.innerHeight - CITE_TIP_MAXH - 8
+  }
+  if (y < 8) y = 8
+  citeTooltip.value = { visible: true, x, y, tip, text }
+}
+
+function onOverBody(e: MouseEvent) {
+  const target = (e.target as HTMLElement)?.closest?.('.cite-ref') as HTMLElement | null
+  if (target) showCiteFor(target)
+}
+
+function onOutBody(e: MouseEvent) {
+  const target = e.target as HTMLElement | null
+  const related = e.relatedTarget as HTMLElement | null
+  if (!target || !target.closest?.('.cite-ref')) return
+  // 移入 tooltip 本身则保持显示
+  if (related && related.closest?.('.cite-tooltip')) return
+  scheduleHideCite()
 }
 
 function scrollToBottom() {
@@ -262,20 +318,18 @@ async function sendChat() {
   const msgIdx = addAssistantMessage('chat')
   scrollToBottom()
 
-  const convId = store.currentConvId
-  const docIds = store.kbSelectedDocIds
-
-  if (convId) {
-    await store.saveConvMessage(convId, 'user', msg, 'chat')
-  }
-
-  kbStreamChat(props.kbId, msg, docIds, {
+  kbStreamChat(props.kbId, msg, store.kbSelectedDocIds, {
     onChunk(text) {
       messages.value[msgIdx].content += text
       scrollToBottom()
     },
     onSources(sources) {
       messages.value[msgIdx].sources = sources
+    },
+    onMeta(meta) {
+      if (meta.message_type) {
+        messages.value[msgIdx].type = meta.message_type
+      }
     },
     onLoading(message) {
       messages.value[msgIdx].content = `${message}`
@@ -288,7 +342,7 @@ async function sendChat() {
     onError(err) {
       pushError(msgIdx, `请求失败：${err}`)
     },
-  }, 5, webSearchEnabled.value, convId)
+  }, 5, webSearchEnabled.value, store.currentConvId)
 }
 
 function generateArticle(style: StyleType) {
@@ -506,87 +560,6 @@ defineExpose({ generateArticle, loadHistory, clearMessages, loadSuggestions })
 
 .msg-row.user .msg-content {
   align-items: flex-end;
-}
-
-.msg-sources {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.source-card {
-  background: #fff;
-  border: 1px solid #eef0f5;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
-  transition: border-color 0.15s;
-}
-
-.source-card.expanded {
-  border-color: #c7d2fe;
-}
-
-.source-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.source-header:hover {
-  opacity: 0.75;
-}
-
-.source-file {
-  font-weight: 500;
-  color: #6366f1;
-  font-size: 12px;
-}
-
-.source-page {
-  background: #eef2ff;
-  color: #6366f1;
-  padding: 0 5px;
-  border-radius: 3px;
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.source-score {
-  color: #94a3b8;
-  font-size: 11px;
-}
-
-.source-toggle {
-  margin-left: auto;
-  font-size: 11px;
-  color: #a5b4fc;
-}
-
-.source-preview {
-  color: #64748b;
-  line-height: 1.45;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 4px;
-}
-
-.source-full {
-  color: #334155;
-  line-height: 1.65;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 200px;
-  overflow-y: auto;
-  background: #f8fafc;
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-top: 6px;
-  font-size: 12px;
-  border: 1px solid #eef0f5;
 }
 
 .msg-bubble {
@@ -845,5 +818,53 @@ defineExpose({ generateArticle, loadHistory, clearMessages, loadSuggestions })
   opacity: 0.3;
   cursor: not-allowed;
   transform: none;
+}
+</style>
+
+<style>
+/* 引用脚注（v-html 注入，需放在非 scoped 块） */
+.cite-ref {
+  color: #6366f1;
+  font-size: 0.75em;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 1px;
+  line-height: 1;
+  vertical-align: super;
+}
+
+.cite-ref:hover {
+  color: #4f46e5;
+  text-decoration: underline;
+}
+
+/* 引用脚注悬浮提示（Teleport 到 body，非 scoped） */
+.cite-tooltip {
+  position: fixed;
+  z-index: 3000;
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px 24px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+  pointer-events: auto;
+  font-size: 16px;
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+
+.cite-tooltip-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #4f46e5;
+}
+
+.cite-tooltip-body {
+  color: #475569;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 </style>
