@@ -526,6 +526,24 @@ export function kbStreamGenerate(kbId: string, message: string, style: StyleType
   return consumeAgentSSE(`/api/knowledge/bases/${encodeURIComponent(kbId)}/generate/stream`, { message, style, doc_ids: docIds, top_k: topK, conv_id: convId }, callbacks)
 }
 
+export interface WebSearchItem {
+  title: string
+  url: string
+  content: string
+}
+
+/** Standalone web search for a knowledge base. */
+export async function webSearchKB(kbId: string, query: string): Promise<WebSearchItem[]> {
+  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/web-search`, { query }, { timeout: 60000 })
+  return res.data.results || []
+}
+
+/** Save (ingest) text items as KB documents. */
+export async function ingestTextToKB(kbId: string, items: { title: string; content: string; url?: string; filename?: string }[]): Promise<{ results: any[]; errors: any[] }> {
+  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/ingest-text`, { items }, { timeout: 120000 })
+  return res.data
+}
+
 // ── KB Conversations ──────────────────────────────────────────
 
 export async function createKBConversation(kbId: string, title = ''): Promise<KBConversation> {

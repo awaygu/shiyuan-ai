@@ -1,21 +1,31 @@
 <template>
-  <div class="kb-chat-panel">
-    <div class="chat-topbar">
-      <el-popconfirm
-        title="确定清空当前会话记录？"
-        confirm-button-text="清空"
-        cancel-button-text="取消"
-        @confirm="$emit('clear-conv')"
-      >
-        <template #reference>
-          <button class="clear-conv-btn" title="清空会话">
-            <el-icon><Delete /></el-icon>
-            <span>清空会话</span>
-          </button>
-        </template>
-      </el-popconfirm>
+  <div class="kb-gen-panel">
+    <div class="gen-topbar">
+      <div class="gen-title">
+        <el-icon><MagicStick /></el-icon>
+        <span>生成文章</span>
+      </div>
+      <div class="gen-topbar-right">
+        <el-popconfirm
+          title="确定清空当前生成会话记录？"
+          confirm-button-text="清空"
+          cancel-button-text="取消"
+          @confirm="onClearConv"
+        >
+          <template #reference>
+            <button class="clear-conv-btn" title="清空生成会话" :disabled="generating || preparing">
+              <el-icon><Delete /></el-icon>
+              <span>清空会话</span>
+            </button>
+          </template>
+        </el-popconfirm>
+        <button class="close-btn" title="关闭" @click="closeDialog">
+          <el-icon><Close /></el-icon>
+        </button>
+      </div>
     </div>
-    <div class="chat-body" ref="messagesRef">
+
+    <div class="gen-body" ref="messagesRef">
       <div
         v-for="(msg, i) in messages"
         :key="i"
@@ -49,31 +59,28 @@
         </div>
       </div>
 
-      <div v-if="suggestions.length > 0 && !generating" class="suggestions-area">
-        <div class="suggestions-label">推荐提问</div>
-        <div class="suggestions-list">
-          <button
-            v-for="q in suggestions"
-            :key="q"
-            class="suggestion-btn"
-            @click="onClickSuggestion(q)"
-          >{{ q }}</button>
-        </div>
+      <div v-if="messages.length <= 1 && !generating" class="gen-empty">
+        <div class="empty-hint">选择风格并输入要求，基于知识库生成文章</div>
       </div>
     </div>
 
-    <div class="chat-footer">
-      <div class="input-area">
+    <div class="gen-footer">
+      <div class="gen-input-area">
+        <el-select v-model="style" class="style-select" size="default">
+          <el-option label="小红书" value="xiaohongshu" />
+          <el-option label="公众号" value="wechat_mp" />
+          <el-option label="抖音" value="douyin" />
+        </el-select>
         <el-input
-          v-model="chatMessage"
+          v-model="extraReq"
           type="textarea"
           :autosize="{ minRows: 1, maxRows: 5 }"
-          placeholder="输入问题，AI 将检索知识库回答..."
-          :disabled="generating"
+          placeholder="输入额外要求（可选，如：聚焦新能源、强调数据对比...）"
+          :disabled="generating || preparing"
+          class="gen-input"
           @keydown.enter.exact="onInputEnter"
-          class="chat-input"
         />
-        <button class="send-btn" :disabled="!chatMessage.trim() || generating" @click="sendChat">
+        <button class="send-btn" :disabled="!canSend || generating || preparing" @click="onGenerateClick">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
             <path d="M5 12H19M19 12L13 6M19 12L13 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -88,36 +95,23 @@
       @confirm="confirmPublish"
       @cancel="cancelPublish"
     />
-
-    <Teleport to="body">
-      <div
-        v-if="citeTooltip.visible"
-        class="cite-tooltip"
-        :style="{ left: citeTooltip.x + 'px', top: citeTooltip.y + 'px', width: CITE_TIP_WIDTH + 'px' }"
-        @mouseenter="cancelHideCite"
-        @mouseleave="scheduleHideCite"
-      >
-        <div class="cite-tooltip-title">{{ citeTooltip.tip }}</div>
-        <div v-if="citeTooltip.text" class="cite-tooltip-body">{{ citeTooltip.text }}</div>
-      </div>
-    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, nextTick, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Delete } from '@element-plus/icons-vue'
+import { Delete, MagicStick, Close } from '@element-plus/icons-vue'
 import { useNewsStore } from '@/stores'
-import { kbStreamChat, fetchKBSuggestions, publishByContent } from '@/api'
-import type { KBSource, KBMessage } from '@/types'
+import { kbStreamGenerate, publishByContent } from '@/api'
+import type { StyleType, KBSource, KBMessage } from '@/types'
 import type { ImagePublishOptions } from '@/composables/useWechatPublish'
 import { useWechatPublish } from '@/composables/useWechatPublish'
 import WechatImageOptionsDialog from '@/components/WechatImageOptionsDialog.vue'
 import { renderSafeMarkdown } from '@/utils/markdown'
 
 const props = defineProps<{ kbId: string }>()
-const emit = defineEmits<{ 'clear-conv': []; 'generating-change': [value: boolean] }>()
+const emit = defineEmits<{ 'generating-change': [value: boolean]; 'close': [] }>()
 const store = useNewsStore()
 const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } = useWechatPublish()
 
@@ -129,54 +123,18 @@ interface ChatMessage {
   sources?: KBSource[]
 }
 
-const messages = ref<ChatMessage[]>([
-  { role: 'assistant', content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。', type: 'chat' },
-])
-
+const messages = ref<ChatMessage[]>([])
 const messagesRef = ref<HTMLElement | null>(null)
-const chatMessage = ref('')
+const style = ref<StyleType>('xiaohongshu')
+const extraReq = ref('')
 const generating = ref(false)
-const suggestions = ref<string[]>([])
-const loadingSuggestions = ref(false)
+const preparing = ref(false)
+const pendingExtraReq = ref('')
 
-watch(generating, (val) => emit('generating-change', val))
-
-watch(() => props.kbId, () => { loadSuggestions() }, { immediate: true })
-
-onMounted(() => {
-  window.addEventListener('mouseover', onOverBody)
-  window.addEventListener('mouseout', onOutBody)
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('mouseover', onOverBody)
-  window.removeEventListener('mouseout', onOutBody)
-  if (_citeHideTimer) clearTimeout(_citeHideTimer)
-})
-
-function renderMarkdown(text: string): string {
-  return renderSafeMarkdown(text)
-}
-
-// 将正文中的 [n] 引用编号转换为可悬浮的脚注 sup
-function injectCitations(html: string, sources: KBSource[] | undefined): string {
-  if (!sources || sources.length === 0) return html
-  return html.replace(/\[(\d+)\]/g, (m, numStr: string) => {
-    const idx = parseInt(numStr, 10)
-    if (idx < 1 || idx > sources.length) return m
-    const s = sources[idx - 1]
-    const page = s.page ? ` · 第${s.page}页` : ''
-    const tip = `${s.filename}${page}`
-    return `<sup class="cite-ref" data-tip="${escapeAttr(tip)}" data-text="${escapeAttr(s.text || s.preview || '')}">[${idx}]</sup>`
-  })
-}
-
-function escapeAttr(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
+const canSend = computed(() => store.kbDocuments.length > 0)
 
 function renderMsgHtml(msg: ChatMessage): string {
-  let html = renderMarkdown(msg.content)
-  html = injectCitations(html, msg.sources)
+  let html = renderSafeMarkdown(msg.content)
   if (msg.streaming) {
     const cursor = '<span class="streaming-cursor">|</span>'
     const lastClose = html.lastIndexOf('</')
@@ -188,56 +146,6 @@ function renderMsgHtml(msg: ChatMessage): string {
     }
   }
   return html
-}
-
-// 脚注 tooltip 事件委托 — 锚定到引用编号，悬浮显示，可在 tooltip 上悬停查看长内容
-const citeTooltip = ref<{ visible: boolean; x: number; y: number; tip: string; text: string }>({
-  visible: false, x: 0, y: 0, tip: '', text: '',
-})
-
-let _citeHideTimer: number | null = null
-function scheduleHideCite() {
-  if (_citeHideTimer) clearTimeout(_citeHideTimer)
-  _citeHideTimer = window.setTimeout(() => { citeTooltip.value.visible = false }, 220)
-}
-function cancelHideCite() {
-  if (_citeHideTimer) { clearTimeout(_citeHideTimer); _citeHideTimer = null }
-}
-
-const CITE_TIP_WIDTH = 480
-const CITE_TIP_MAXH = 240
-
-function showCiteFor(el: HTMLElement) {
-  cancelHideCite()
-  const rect = el.getBoundingClientRect()
-  const tip = el.getAttribute('data-tip') || ''
-  const text = el.getAttribute('data-text') || ''
-  // 默认放在引用右侧并顶部对齐；右侧放不下则放左侧
-  let x = rect.right + 6
-  let y = rect.top
-  if (x + CITE_TIP_WIDTH > window.innerWidth - 8) {
-    x = rect.left - CITE_TIP_WIDTH - 6
-  }
-  if (x < 8) x = 8
-  if (y + CITE_TIP_MAXH > window.innerHeight - 8) {
-    y = window.innerHeight - CITE_TIP_MAXH - 8
-  }
-  if (y < 8) y = 8
-  citeTooltip.value = { visible: true, x, y, tip, text }
-}
-
-function onOverBody(e: MouseEvent) {
-  const target = (e.target as HTMLElement)?.closest?.('.cite-ref') as HTMLElement | null
-  if (target) showCiteFor(target)
-}
-
-function onOutBody(e: MouseEvent) {
-  const target = e.target as HTMLElement | null
-  const related = e.relatedTarget as HTMLElement | null
-  if (!target || !target.closest?.('.cite-ref')) return
-  // 移入 tooltip 本身则保持显示
-  if (related && related.closest?.('.cite-tooltip')) return
-  scheduleHideCite()
 }
 
 function scrollToBottom() {
@@ -252,60 +160,76 @@ function pushUserMessage(text: string) {
   messages.value.push({ role: 'user', content: text, type: 'chat' })
 }
 
-function addAssistantMessage(type: ChatMessage['type'] = 'chat'): number {
+function addAssistantMessage(type: ChatMessage['type'] = 'article'): number {
   const msg: ChatMessage = { role: 'assistant', content: '', streaming: true, type }
   messages.value.push(msg)
   return messages.value.length - 1
 }
 
 function pushDone(msgIdx: number) {
-  messages.value[msgIdx].streaming = false
+  const msg = messages.value[msgIdx]
+  if (msg) {
+    msg.streaming = false
+  }
   generating.value = false
+  emit('generating-change', false)
   scrollToBottom()
-  loadSuggestions()
 }
 
 function pushError(msgIdx: number, err: string) {
-  messages.value[msgIdx].content += `\n\n❌ ${err}`
-  messages.value[msgIdx].streaming = false
+  const msg = messages.value[msgIdx]
+  if (msg) {
+    msg.content += `\n\n❌ ${err}`
+    msg.streaming = false
+  } else {
+    ElMessage.error(err)
+  }
   generating.value = false
+  emit('generating-change', false)
   scrollToBottom()
+}
+
+function startGenerate(s?: StyleType) {
+  if (s) style.value = s
+  if (generating.value || preparing.value) return
+  if (store.kbDocuments.length === 0) {
+    ElMessage.warning('知识库为空，请先上传文档')
+    return
+  }
+  const req = extraReq.value.trim()
+  doGenerate(style.value, req)
+  // 先把输入暂存到 pendingExtraReq，待流式成功后再清空；
+  // 失败时恢复，避免用户丢失输入
+  pendingExtraReq.value = req
+  extraReq.value = ''
+}
+
+function onGenerateClick() {
+  startGenerate()
 }
 
 function onInputEnter(e: KeyboardEvent) {
   if (e.ctrlKey || e.shiftKey) return
   e.preventDefault()
-  sendChat()
+  startGenerate()
 }
 
-async function loadSuggestions() {
-  loadingSuggestions.value = true
-  try {
-    suggestions.value = await fetchKBSuggestions(props.kbId)
-  } catch {
-    suggestions.value = []
-  } finally {
-    loadingSuggestions.value = false
+function doGenerate(s: StyleType, extraReqText: string) {
+  const userMsg = extraReqText
+  if (userMsg) {
+    pushUserMessage(userMsg)
   }
-}
-
-function onClickSuggestion(q: string) {
-  chatMessage.value = q
-  sendChat()
-}
-
-async function sendChat() {
-  const msg = chatMessage.value.trim()
-  if (!msg || generating.value) return
-
-  pushUserMessage(msg)
-  chatMessage.value = ''
   generating.value = true
+  emit('generating-change', true)
+  pendingExtraReq.value = userMsg
 
-  const msgIdx = addAssistantMessage('chat')
+  const msgIdx = addAssistantMessage('article')
   scrollToBottom()
 
-  kbStreamChat(props.kbId, msg, store.kbSelectedDocIds, {
+  const convId = store.currentGenConvId
+  const docIds = store.kbSelectedDocIds
+
+  kbStreamGenerate(props.kbId, userMsg, s, {
     onChunk(text) {
       messages.value[msgIdx].content += text
       scrollToBottom()
@@ -313,23 +237,25 @@ async function sendChat() {
     onSources(sources) {
       messages.value[msgIdx].sources = sources
     },
-    onMeta(meta) {
-      if (meta.message_type) {
-        messages.value[msgIdx].type = meta.message_type
-      }
-    },
-    onLoading(message) {
-      messages.value[msgIdx].content = `${message}`
-      scrollToBottom()
-    },
-    onPrompt() {},
     onDone() {
       pushDone(msgIdx)
+      // 生成成功，清空暂存
+      pendingExtraReq.value = ''
     },
     onError(err) {
-      pushError(msgIdx, `请求失败：${err}`)
+      pushError(msgIdx, `生成失败：${err}`)
+      // 失败时恢复用户输入，避免丢失
+      extraReq.value = pendingExtraReq.value
+      pendingExtraReq.value = ''
     },
-  }, 5, false, store.currentConvId)
+  }, docIds, 8, convId)
+}
+
+async function onClearConv() {
+  if (generating.value || preparing.value) return
+  await store.clearGenConv(props.kbId)
+  messages.value = []
+  ElMessage.success('已清空生成会话')
 }
 
 function copyContent(text: string) {
@@ -360,9 +286,8 @@ async function onPublishCommand(content: string, platform: string) {
 async function onPublish(content: string, platform: string, imageOptions?: ImagePublishOptions) {
   const label = platformLabels[platform] || platform
   const title = content.split('\n').find(l => l.trim() && !l.trim().startsWith('#'))?.trim()?.slice(0, 30) || '知识库文章'
-
   try {
-    const res = await publishByContent(title, content, platform, imageOptions)
+    await publishByContent(title, content, platform, imageOptions)
     store.startTaskStream()
     store.showTaskPanel = true
     await store.loadTasks()
@@ -373,9 +298,7 @@ async function onPublish(content: string, platform: string, imageOptions?: Image
 }
 
 function loadHistory(historyMessages: KBMessage[]) {
-  messages.value = [
-    { role: 'assistant', content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。', type: 'chat' },
-  ]
+  messages.value = []
   for (const m of historyMessages) {
     messages.value.push({
       role: m.role,
@@ -387,17 +310,28 @@ function loadHistory(historyMessages: KBMessage[]) {
   scrollToBottom()
 }
 
-function clearMessages() {
-  messages.value = [
-    { role: 'assistant', content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。', type: 'chat' },
-  ]
+async function openDialog(s?: StyleType) {
+  if (preparing.value) return
+  preparing.value = true
+  try {
+    if (s) style.value = s
+    await store.ensureGenConv(props.kbId)
+    await store.loadGenMessages(props.kbId)
+    loadHistory(store.kbGenMessages)
+  } finally {
+    preparing.value = false
+  }
 }
 
-defineExpose({ loadHistory, clearMessages, loadSuggestions })
+function closeDialog() {
+  emit('close')
+}
+
+defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
 </script>
 
 <style scoped>
-.kb-chat-panel {
+.kb-gen-panel {
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -405,11 +339,48 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
   background: #fafbfc;
 }
 
-.chat-topbar {
+.gen-topbar {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   padding: 8px 16px;
   flex-shrink: 0;
+  border-bottom: 1px solid #f0f1f5;
+}
+
+.gen-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #4f46e5;
+}
+
+.gen-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  transition: all 0.15s;
+}
+
+.close-btn:hover {
+  border-color: #fca5a5;
+  color: #ef4444;
+  background: #fef2f2;
 }
 
 .clear-conv-btn {
@@ -432,10 +403,27 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
   background: #fef2f2;
 }
 
-.chat-body {
+.clear-conv-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.gen-body {
   flex: 1;
   overflow-y: auto;
   padding: 20px 24px;
+}
+
+.gen-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60%;
+}
+
+.empty-hint {
+  font-size: 14px;
+  color: #94a3b8;
 }
 
 .msg-row {
@@ -513,10 +501,7 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
   margin: 6px 0;
   padding-left: 22px;
 }
-.msg-bubble :deep(li) {
-  margin: 3px 0;
-  line-height: 1.7;
-}
+.msg-bubble :deep(li) { margin: 3px 0; line-height: 1.7; }
 .msg-bubble :deep(h1),
 .msg-bubble :deep(h2),
 .msg-bubble :deep(h3),
@@ -556,12 +541,6 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
   font-size: 13px;
   color: #4338ca;
 }
-
-.msg-row.user .msg-bubble :deep(code) {
-  background: rgba(255, 255, 255, 0.15);
-  color: #eef2ff;
-}
-
 .msg-bubble :deep(pre) {
   background: #f5f6fa;
   padding: 10px 14px;
@@ -570,7 +549,6 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
   font-size: 13px;
   margin: 6px 0;
 }
-
 .msg-bubble :deep(blockquote) {
   border-left: 3px solid #c7d2fe;
   padding-left: 12px;
@@ -588,42 +566,6 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
 @keyframes blink {
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }
-}
-
-.suggestions-area {
-  padding: 8px 0 16px;
-}
-
-.suggestions-label {
-  font-size: 12px;
-  color: #94a3b8;
-  margin-bottom: 8px;
-  padding-left: 4px;
-}
-
-.suggestions-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.suggestion-btn {
-  font-size: 13px;
-  padding: 6px 14px;
-  border-radius: 18px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  color: #475569;
-  cursor: pointer;
-  transition: all 0.15s;
-  text-align: left;
-  line-height: 1.4;
-}
-
-.suggestion-btn:hover {
-  border-color: #a5b4fc;
-  color: #4f46e5;
-  background: #eef2ff;
 }
 
 .msg-actions {
@@ -648,34 +590,39 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
   background: #eef2ff;
 }
 
-.chat-footer {
+.gen-footer {
   flex-shrink: 0;
   padding: 12px 16px;
   background: #fafbfc;
   border-top: 1px solid #eef0f5;
 }
 
-.input-area {
+.gen-input-area {
   display: flex;
   align-items: flex-end;
   gap: 8px;
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 6px 6px 6px 4px;
+  padding: 6px;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.input-area:focus-within {
+.gen-input-area:focus-within {
   border-color: #a5b4fc;
   box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.1);
 }
 
-.chat-input {
+.style-select {
+  flex-shrink: 0;
+  width: 110px;
+}
+
+.gen-input {
   flex: 1;
 }
 
-.chat-input :deep(.el-textarea__inner) {
+.gen-input :deep(.el-textarea__inner) {
   border: none;
   box-shadow: none;
   padding: 6px 10px;
@@ -686,7 +633,7 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
   color: #1e293b;
 }
 
-.chat-input :deep(.el-textarea__inner:focus) {
+.gen-input :deep(.el-textarea__inner:focus) {
   box-shadow: none;
 }
 
@@ -714,53 +661,5 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
   opacity: 0.3;
   cursor: not-allowed;
   transform: none;
-}
-</style>
-
-<style>
-/* 引用脚注（v-html 注入，需放在非 scoped 块） */
-.cite-ref {
-  color: #6366f1;
-  font-size: 0.75em;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0 1px;
-  line-height: 1;
-  vertical-align: super;
-}
-
-.cite-ref:hover {
-  color: #4f46e5;
-  text-decoration: underline;
-}
-
-/* 引用脚注悬浮提示（Teleport 到 body，非 scoped） */
-.cite-tooltip {
-  position: fixed;
-  z-index: 3000;
-  background: #ffffff;
-  color: #334155;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 16px 24px;
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
-  pointer-events: auto;
-  font-size: 16px;
-  line-height: 1.6;
-  box-sizing: border-box;
-}
-
-.cite-tooltip-title {
-  font-weight: 600;
-  margin-bottom: 6px;
-  color: #4f46e5;
-}
-
-.cite-tooltip-body {
-  color: #475569;
-  max-height: 200px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
 }
 </style>

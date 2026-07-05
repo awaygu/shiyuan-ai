@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from langchain_core.tools import tool
 
@@ -29,6 +30,93 @@ async def web_search(query: str) -> str:
     else:
         from tools.web_search_kimi import web_search_kimi as kimi_search
         return await kimi_search.ainvoke({"query": query})
+
+
+async def web_search_structured(query: str) -> list[dict]:
+    """联网搜索并返回结构化结果列表 [{title, url, content}]。
+
+    Tavily 路径直接取原始 results；Kimi 路径返回合成文本，
+    按 `### n. title\n来源: url\ncontent` 格式解析回结构化。
+    """
+    from config import WEB_SEARCH_ENGINE
+
+    engine = (WEB_SEARCH_ENGINE or "kimi").lower()
+
+    if engine == "tavily":
+        from tavily import AsyncTavilyClient
+        from config import TAVILY_API_KEY
+
+        client = AsyncTavilyClient(api_key=TAVILY_API_KEY)
+        response = await client.search(
+            query=query,
+            search_depth="advanced",
+            max_results=5,
+            include_raw_content=False,
+        )
+        results = response.get("results", []) or []
+        return [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": r.get("content", ""),
+            }
+            for r in results
+        ]
+
+    # Kimi 路径：返回合成文本，需解析回结构化
+    from tools.web_search_kimi import web_search_kimi as kimi_search
+    text = await kimi_search.ainvoke({"query": query})
+    return _parse_kimi_structured(text)
+
+
+_KIMI_RESULT_RE = re.compile(
+    r"###\s*\d+\.\s*(?P<title>[^\n]*)\n\s*来源[:：]\s*(?P<url>\S[^\n]*)\n(?P<content>(?:(?!###\s*\d+\.).)*)",
+    re.DOTALL,
+)
+
+# 兜底：从纯文本/任意 markdown 中抽取链接作为结果（[title](url) 或裸 url）
+_KIMI_MD_LINK_RE = re.compile(r"\[(?P<title>[^\]]+)\]\((?P<url>https?://[^\s)]+)\)")
+_KIMI_BARE_URL_RE = re.compile(r"(?m)^(?P<url>https?://[^\s)]+)\s*$")
+
+
+def _parse_kimi_structured(text: str) -> list[dict]:
+    """解析 Kimi 合成的 markdown 搜索结果为结构化列表。
+
+    优先按 `### n. title\\n来源: url\\ncontent` 严格格式解析；
+    若 Kimi 返回的是自由 markdown，则回退抽取其中的链接与段落。
+    """
+    if not text:
+        return []
+    items: list[dict] = []
+    for m in _KIMI_RESULT_RE.finditer(text):
+        items.append(
+            {
+                "title": m.group("title").strip(),
+                "url": m.group("url").strip(),
+                "content": m.group("content").strip(),
+            }
+        )
+    if items:
+        return items
+
+    # 回退：按 markdown 链接 + 其后续段落抽取
+    fallback: list[dict] = []
+    for m in _KIMI_MD_LINK_RE.finditer(text):
+        title = m.group("title").strip()
+        url = m.group("url").strip()
+        # 取该链接之后到下一个链接之前的文本作为 content
+        start = m.end()
+        nxt = _KIMI_MD_LINK_RE.search(text, start)
+        end = nxt.start() if nxt else len(text)
+        content = text[start:end].strip()
+        fallback.append({"title": title or url, "url": url, "content": content})
+    if fallback:
+        return fallback
+
+    # 最后兜底：仅抽裸 URL，title 用 URL 本身
+    for m in _KIMI_BARE_URL_RE.finditer(text):
+        fallback.append({"title": m.group("url"), "url": m.group("url"), "content": ""})
+    return fallback
 
 
 def get_web_search_tool():

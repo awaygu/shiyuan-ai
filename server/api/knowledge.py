@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import uuid
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -151,6 +152,88 @@ async def delete_knowledge_base(kb_id: str):
 
 # ── Upload ──────────────────────────────────────────────────────
 
+async def _ingest_text(
+    kb_id: str,
+    filename: str,
+    text: str,
+    source_url: str = "",
+) -> dict:
+    """将一段纯文本入库为知识库文档（不复用文件解析，直接分块+向量化+落库）。
+
+    用于联网搜索结果等"无文件来源"的文本入库。filename 用作展示名（已清洗），
+    file_type 固定为 .md，不写文件到 uploads/{kb_id}/ 目录。
+    """
+    if not text.strip():
+        raise HTTPException(400, "内容为空，无法入库")
+
+    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+    from openai import OpenAI as LLMClient
+    from rag.loader import PageText
+
+    doc_id = uuid.uuid4().hex[:16]
+
+    doc_summary = ""
+    try:
+        llm_client = LLMClient(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=30.0, max_retries=2)
+        summary_text = text[:3000]
+        summary_completion = llm_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": prompt_manager.doc_summary_system_prompt},
+                {"role": "user", "content": summary_text},
+            ],
+        )
+        doc_summary = (summary_completion.choices[0].message.content or "").strip()
+    except Exception as e:
+        logger.warning("Summary generation failed for %s: %s", doc_id, e)
+
+    chunks = chunker.chunk_with_pages([PageText(page=1, text=text)], doc_id=doc_id)
+    if not chunks:
+        raise HTTPException(400, "内容过短，无法分块")
+
+    try:
+        vectors = await embedding_client.embed_async([c.text for c in chunks])
+    except Exception as e:
+        raise HTTPException(500, f"Embedding failed: {e}")
+
+    chunk_ids = [c.chunk_id for c in chunks]
+    await vs_manager.add_async(kb_id, chunk_ids, vectors, doc_id)
+
+    doc_record = {
+        "doc_id": doc_id,
+        "kb_id": kb_id,
+        "filename": filename,
+        "file_type": ".md",
+        "chunk_count": len(chunks),
+        "file_size": len(text.encode("utf-8")),
+        "upload_time": "",
+        "status": "ready",
+        "summary": doc_summary,
+    }
+    if source_url:
+        doc_record["source_url"] = source_url
+    await save_kb_doc(doc_record)
+
+    chunk_dicts = [
+        {
+            "chunk_id": c.chunk_id,
+            "doc_id": doc_id,
+            "chunk_index": c.chunk_index,
+            "page": c.page,
+            "text": c.text,
+        }
+        for c in chunks
+    ]
+    await save_kb_chunks(chunk_dicts)
+
+    return {
+        "doc_id": doc_id,
+        "filename": filename,
+        "chunk_count": len(chunks),
+        "file_size": doc_record["file_size"],
+    }
+
+
 async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
     if not file.filename:
         raise HTTPException(400, "No filename")
@@ -267,6 +350,81 @@ async def upload_documents(kb_id: str, files: list[UploadFile] = File(...)):
             errors.append({"filename": file.filename, "detail": e.detail})
         except Exception as e:
             errors.append({"filename": file.filename, "detail": str(e)})
+
+    return {"results": results, "errors": errors}
+
+
+# ── Web Search (standalone, save-to-KB) ─────────────────────────
+
+class KBWebSearchRequest(BaseModel):
+    query: str
+
+
+@router.post("/bases/{kb_id}/web-search")
+async def kb_web_search(kb_id: str, req: KBWebSearchRequest):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+    if not req.query.strip():
+        raise HTTPException(400, "搜索词不能为空")
+
+    from tools.web_search import web_search_structured, get_web_search_tool
+
+    if get_web_search_tool() is None:
+        raise HTTPException(503, "联网搜索未启用或未配置 API Key")
+
+    try:
+        results = await web_search_structured(req.query)
+    except Exception as e:
+        logger.exception("KB web-search failed: %s", e)
+        raise HTTPException(500, f"联网搜索失败：{e}")
+
+    return {"results": results}
+
+
+class KBIngestTextItem(BaseModel):
+    title: str
+    content: str
+    url: str = ""
+    filename: str = ""
+
+
+class KBIngestTextRequest(BaseModel):
+    items: list[KBIngestTextItem]
+
+
+@router.post("/bases/{kb_id}/ingest-text")
+async def kb_ingest_text(kb_id: str, req: KBIngestTextRequest):
+    kb = await load_kb(kb_id)
+    if not kb:
+        raise HTTPException(404, "Knowledge base not found")
+    if not req.items:
+        raise HTTPException(400, "没有可入库的内容")
+
+    async def _ingest_one(item):
+        title = (item.title or "").strip() or "未命名"
+        content = (item.content or "").strip()
+        if not content:
+            return {"ok": False, "title": title, "detail": "内容为空"}
+        filename = (item.filename or "").strip() or f"{title}.md"
+        # 清洗文件名，避免非法字符
+        safe_filename = re.sub(r'[\\/:*?"<>|\n\r\t]', "_", filename)
+        try:
+            result = await _ingest_text(kb_id, safe_filename, content, item.url)
+            return {"ok": True, "result": result}
+        except HTTPException as e:
+            return {"ok": False, "title": title, "detail": e.detail}
+        except Exception as e:
+            return {"ok": False, "title": title, "detail": str(e)}
+
+    outcomes = await asyncio.gather(*(_ingest_one(item) for item in req.items))
+    results = []
+    errors = []
+    for o in outcomes:
+        if o.get("ok"):
+            results.append(o["result"])
+        else:
+            errors.append({"title": o.get("title", ""), "detail": o.get("detail", "未知错误")})
 
     return {"results": results, "errors": errors}
 
@@ -489,33 +647,6 @@ async def save_msg(kb_id: str, conv_id: str, req: SaveMessageRequest):
 
 
 STYLE_LABELS = {"xiaohongshu": "小红书", "wechat_mp": "微信公众号", "douyin": "抖音"}
-STYLE_KEYWORDS = {
-    "xiaohongshu": ["小红书", "红薯", "xhs"],
-    "wechat_mp": ["公众号", "微信", "微信公众号", "公众平台"],
-    "douyin": ["抖音", "抖", "douyin"],
-}
-_ARTICLE_INTENT_RE = re.compile(
-    r"(?:生成|写|来|做|创作|出一?)\s*.{0,8}(?:文章|帖子|文案|笔记|内容|脚本|稿件)|"
-    r"(?:文章|帖子|文案|笔记|内容|脚本|稿件).{0,5}(?:生成|写|来|做|创作|出一?)",
-    re.IGNORECASE,
-)
-
-
-def _detect_article_intent(message: str) -> tuple[str | None, str]:
-    """检测用户是否想在聊天中生成文章。
-
-    返回 (style, query)。style 为 None 表示不是生成请求。
-    """
-    if not _ARTICLE_INTENT_RE.search(message):
-        return None, message
-
-    style = "wechat_mp"  # 默认公众号
-    for style_code, keywords in STYLE_KEYWORDS.items():
-        if any(kw in message for kw in keywords):
-            style = style_code
-            break
-
-    return style, message
 
 
 def _style_hint(style: str) -> str:
@@ -538,10 +669,11 @@ async def _stream_kb_article(
     """共享知识库文章生成流式逻辑。
 
     Yields SSE data lines. Caller should wrap in StreamingResponse.
-    生成完成后会自动将 assistant 消息以 type='article' 写入 kb_messages。
+    生成完成后会自动将 user 与 assistant 消息以 type='article' 写入 kb_messages，
+    并将历史会话作为上下文喂给 LLM，使生成能延续之前的要求与文章。
     """
     from langchain_openai import ChatOpenAI
-    from langchain_core.messages import SystemMessage, HumanMessage
+    from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
     vector_store = vs_manager.get(kb_id)
     if vector_store.total_vectors == 0:
@@ -555,8 +687,60 @@ async def _stream_kb_article(
         title = kb["name"] if kb else "知识库会话"
         await create_conversation({"conv_id": conv_id, "kb_id": kb_id, "title": title})
 
+    style_label = STYLE_LABELS.get(style, style)
+    hint = _style_hint(style)
+
+    # 用户本次输入：query 由 endpoint 传入，空则给一个默认指令（不依赖前端必须填）
+    raw_query = (query or "").strip()
+    has_user_input = bool(raw_query)
+    default_query = "总结知识库核心内容"
+    # 用于检索的 query：只包含语义内容（用户原话 + 历史），不掺入风格提示噪音，
+    # 否则 embedding 会被「emoji/口语化/话题标签」等风格词带偏，召回与知识库无关。
+    retrieval_query = raw_query or default_query
+
+    # 仅当用户真实输入时才保存 user 消息，避免历史里堆积「总结知识库核心内容」之类的占位
+    user_msg_id = uuid.uuid4().hex[:12]
+    if has_user_input:
+        await save_message({
+            "msg_id": user_msg_id,
+            "conv_id": conv_id,
+            "role": "user",
+            "content": raw_query,
+            "type": "article",
+            "sources": "",
+        })
+
+    # 加载历史会话作为上下文（仅取最近 50 条，避免长会话上下文爆炸）
+    history_msgs = await load_messages(conv_id, limit=50)
+    prior_history = []
+    for m in history_msgs:
+        if m.get("msg_id") == user_msg_id:
+            continue
+        role = m.get("role")
+        content = m.get("content") or ""
+        if not content:
+            continue
+        if role == "user":
+            prior_history.append(HumanMessage(content=content))
+        elif role == "assistant":
+            prior_history.append(AIMessage(content=content))
+
+    # 检索查询：将历史最近几轮 + 本次用户输入合并，提升对知识库的召回相关性
+    if prior_history:
+        recent = prior_history[-4:]  # 最近 4 条历史
+        hist_text = "\n".join(
+            ("用户：" if isinstance(m, HumanMessage) else "AI：") + m.content
+            for m in recent
+        )
+        retrieval_query = f"{hist_text}\n用户：{raw_query or default_query}"
+
+    # 发给 LLM 的用户消息：包含原话（或默认指令）+ 风格提示
+    user_text = raw_query or f"请基于知识库内容生成一篇{style_label}风格的文章"
+    if hint:
+        user_text = f"{user_text}\n\n{hint}"
+
     try:
-        query_vec = await embedding_client.embed_query_async(query)
+        query_vec = await embedding_client.embed_query_async(retrieval_query)
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'message': f'Embedding failed: {e}'}, ensure_ascii=False)}\n\n"
         return
@@ -582,11 +766,6 @@ async def _stream_kb_article(
         context_text = context_text[:MAX_RAG_CONTEXT_CHARS] + "\n\n...（内容过长，已截断）"
 
     full_system = prompt_manager.kb_generate_system_prompt + f"\n\n【知识库内容】\n{context_text}"
-    style_label = STYLE_LABELS.get(style, style)
-    human = query or f"请基于知识库内容生成一篇{style_label}风格的文章"
-    hint = _style_hint(style)
-    if hint:
-        human += f"\n\n{hint}"
 
     llm = ChatOpenAI(
         model="deepseek-chat",
@@ -600,7 +779,7 @@ async def _stream_kb_article(
     # 通知前端这是一条可发布的文章消息
     yield f"data: {json.dumps({'type': 'meta', 'message_type': 'article'}, ensure_ascii=False)}\n\n"
 
-    prompt_text = build_prompt_display_text(full_system, human)
+    prompt_text = build_prompt_display_text(full_system, user_text)
     yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
 
     sources = [
@@ -616,7 +795,13 @@ async def _stream_kb_article(
     if sources:
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
 
-    messages = [SystemMessage(content=full_system), HumanMessage(content=human)]
+    # 组装 LLM 消息：系统提示（含知识库内容） + 历史会话 + 本次用户输入
+    messages = [SystemMessage(content=full_system)]
+    if prior_history:
+        # 截断历史，避免上下文过长
+        messages.extend(prior_history[-10:])
+    messages.append(HumanMessage(content=user_text))
+
     full_content = ""
     try:
         async for chunk in llm.astream(messages):
@@ -722,15 +907,6 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
             "type": "chat",
             "sources": "",
         })
-
-        # 检测是否在会话中要求生成文章（如"生成一篇小红书文章"）
-        article_style, article_query = _detect_article_intent(req.message)
-        if article_style:
-            style_label = STYLE_LABELS.get(article_style, "")
-            yield f"data: {json.dumps({'type': 'loading', 'message': f'正在生成{style_label}文章...'}, ensure_ascii=False)}\n\n"
-            async for data in _stream_kb_article(kb_id, article_query, article_style, req.doc_ids, req.top_k, conv_id):
-                yield data
-            return
 
         try:
             async for event in rag_graph.astream_events(
@@ -860,6 +1036,7 @@ class KBGenerateRequest(BaseModel):
     style: str = "wechat_mp"
     doc_ids: list[str] = Field(default_factory=list)
     top_k: int = Field(default=10, ge=1, le=20)
+    conv_id: str = ""
 
 
 @router.post("/bases/{kb_id}/generate/stream")
@@ -873,7 +1050,8 @@ async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
         raise HTTPException(400, "Knowledge base is empty. Please upload documents first.")
 
     query = req.message or "总结知识库核心内容"
-    conv_id = _kb_conv_id(kb_id)
+    # 生成文章使用独立会话命名空间，与问答会话（kb_{kb_id} / UUID）物理隔离
+    conv_id = req.conv_id or f"gen_{kb_id}"
 
     async def event_stream():
         async for data in _stream_kb_article(kb_id, query, req.style, req.doc_ids, req.top_k, conv_id):

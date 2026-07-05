@@ -327,6 +327,14 @@ export const useNewsStore = defineStore('news', () => {
     await loadKBDocuments(kbId)
     kbSelectedDocIds.value = kbDocuments.value.map(d => d.doc_id)
     await loadKBConversations(kbId)
+    // 切换知识库时，生成会话必须重置，否则 currentGenConvId 仍指向旧 KB 的会话
+    currentGenConvId.value = ''
+    kbGenMessages.value = []
+    // 优先复用已存在的「生成文章」会话，避免每次切换都新建
+    const existingGen = kbConversations.value.find(c => (c.title || '') === '生成文章')
+    if (existingGen) {
+      currentGenConvId.value = existingGen.conv_id
+    }
   }
 
   async function loadKBDocuments(kbId?: string) {
@@ -431,6 +439,44 @@ export const useNewsStore = defineStore('news', () => {
     await saveKBMessage(id, convId, role, content, type, sources)
   }
 
+  // ── 独立生成会话（与问答会话物理隔离） ──
+  const currentGenConvId = ref<string>('')
+  const kbGenMessages = ref<KBMessage[]>([])
+
+  async function ensureGenConv(kbId?: string) {
+    const id = kbId || currentKB.value?.kb_id
+    if (!id) return
+    if (!currentGenConvId.value) {
+      // 复用已存在的「生成文章」会话，避免重复创建
+      const existing = kbConversations.value.find(c => (c.title || '') === '生成文章')
+      if (existing) {
+        currentGenConvId.value = existing.conv_id
+        return
+      }
+      const conv = await createKBConversation(id, '生成文章')
+      currentGenConvId.value = conv.conv_id
+    }
+  }
+
+  async function loadGenMessages(kbId?: string) {
+    const id = kbId || currentKB.value?.kb_id
+    if (!id || !currentGenConvId.value) {
+      kbGenMessages.value = []
+      return
+    }
+    kbGenMessages.value = await fetchKBMessages(id, currentGenConvId.value)
+  }
+
+  async function clearGenConv(kbId?: string) {
+    const id = kbId || currentKB.value?.kb_id
+    if (!id || !currentGenConvId.value) return
+    const oldConvId = currentGenConvId.value
+    await deleteKBConversation(id, oldConvId)
+    kbGenMessages.value = []
+    const conv = await createKBConversation(id, '生成文章')
+    currentGenConvId.value = conv.conv_id
+  }
+
   return {
     newsItems,
     currentSource,
@@ -491,6 +537,11 @@ export const useNewsStore = defineStore('news', () => {
     removeConv,
     loadConvMessages,
     saveConvMessage,
+    currentGenConvId,
+    kbGenMessages,
+    ensureGenConv,
+    loadGenMessages,
+    clearGenConv,
 
     kwGroups,
     kwLoading,

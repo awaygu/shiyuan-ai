@@ -104,6 +104,10 @@ async def init_db() -> None:
         await db.execute("ALTER TABLE kb_documents ADD COLUMN summary TEXT DEFAULT ''")
     except Exception:
         pass
+    try:
+        await db.execute("ALTER TABLE kb_documents ADD COLUMN source_url TEXT DEFAULT ''")
+    except Exception:
+        pass
     await db.execute("""
         CREATE TABLE IF NOT EXISTS knowledge_bases (
             kb_id TEXT PRIMARY KEY,
@@ -305,8 +309,8 @@ async def save_kb_doc(doc: dict[str, Any]) -> None:
     await db.execute(
         """
         INSERT OR REPLACE INTO kb_documents
-            (doc_id, kb_id, filename, file_type, chunk_count, file_size, upload_time, status, summary)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (doc_id, kb_id, filename, file_type, chunk_count, file_size, upload_time, status, summary, source_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             doc["doc_id"],
@@ -318,6 +322,7 @@ async def save_kb_doc(doc: dict[str, Any]) -> None:
             doc.get("upload_time", ""),
             doc.get("status", "ready"),
             doc.get("summary", ""),
+            doc.get("source_url", ""),
         ),
     )
     await db.commit()
@@ -351,6 +356,7 @@ async def load_kb_docs(kb_id: str = "") -> list[dict[str, Any]]:
             "upload_time": row["upload_time"],
             "status": row["status"],
             "summary": row["summary"] if "summary" in row.keys() else "",
+            "source_url": row["source_url"] if "source_url" in row.keys() else "",
         }
         for row in rows
     ]
@@ -572,9 +578,16 @@ async def clear_kb_messages(conv_id: str) -> int:
     return cursor.rowcount
 
 
-async def load_messages(conv_id: str) -> list[dict[str, Any]]:
+async def load_messages(conv_id: str, limit: int = 0) -> list[dict[str, Any]]:
     db = await get_db()
-    cursor = await db.execute("SELECT * FROM kb_messages WHERE conv_id = ? ORDER BY created_at ASC", (conv_id,))
+    if limit > 0:
+        # 取最近 limit 条，再按时间正序返回，保证流式上下文只看近期历史
+        cursor = await db.execute(
+            "SELECT * FROM (SELECT * FROM kb_messages WHERE conv_id = ? ORDER BY created_at DESC LIMIT ?) ORDER BY created_at ASC",
+            (conv_id, limit),
+        )
+    else:
+        cursor = await db.execute("SELECT * FROM kb_messages WHERE conv_id = ? ORDER BY created_at ASC", (conv_id,))
     rows = await cursor.fetchall()
     return [
         {

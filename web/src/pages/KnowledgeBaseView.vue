@@ -63,8 +63,32 @@
         <button v-if="!showSidebar" class="expand-sidebar-btn" @click="showSidebar = true" title="展开文件管理">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <KBChatPanel ref="chatPanelRef" :kb-id="kbId" @clear-conv="onClearConv" @generating-change="kbGenerating = $event" />
+        <KBChatPanel
+          ref="chatPanelRef"
+          :kb-id="kbId"
+          @clear-conv="onClearConv"
+          @generating-change="kbGenerating = $event"
+        />
       </div>
+
+      <el-dialog
+        v-model="genDialogVisible"
+        width="80%"
+        top="5vh"
+        :close-on-click-modal="false"
+        :destroy-on-close="false"
+        :show-close="false"
+        class="gen-dialog"
+        @open="onGenDialogOpen"
+        @close="onGenDialogClose"
+      >
+        <KBGeneratePanel
+          ref="generatePanelRef"
+          :kb-id="kbId"
+          @generating-change="kbGenerating = $event"
+          @close="genDialogVisible = false"
+        />
+      </el-dialog>
 
       <div
         class="resize-handle resize-handle-right"
@@ -94,6 +118,7 @@
 import { onMounted, ref, watch, nextTick, onUnmounted } from 'vue'
 import KBFilePanel from '@/components/KBFilePanel.vue'
 import KBChatPanel from '@/components/KBChatPanel.vue'
+import KBGeneratePanel from '@/components/KBGeneratePanel.vue'
 import KBActionPanel from '@/components/KBActionPanel.vue'
 import TaskPanel from '@/components/TaskPanel.vue'
 import { useNewsStore } from '@/stores'
@@ -105,8 +130,11 @@ import { Edit } from '@element-plus/icons-vue'
 const props = defineProps<{ kbId: string }>()
 const store = useNewsStore()
 const chatPanelRef = ref<InstanceType<typeof KBChatPanel> | null>(null)
+const generatePanelRef = ref<InstanceType<typeof KBGeneratePanel> | null>(null)
 const showSidebar = ref(true)
 const kbGenerating = ref(false)
+const genDialogVisible = ref(false)
+const pendingGenStyle = ref<StyleType | null>(null)
 
 const sidebarWidth = ref(450)
 const actionsWidth = ref(280)
@@ -209,7 +237,18 @@ async function onSaveDesc() {
 }
 
 function onGenerate(style: StyleType) {
-  chatPanelRef.value?.generateArticle(style)
+  pendingGenStyle.value = style
+  genDialogVisible.value = true
+}
+
+async function onGenDialogOpen() {
+  const s = pendingGenStyle.value
+  pendingGenStyle.value = null
+  await generatePanelRef.value?.openDialog(s ?? undefined)
+}
+
+function onGenDialogClose() {
+  // dialog closed — KBChatPanel remains mounted, no action needed
 }
 
 async function onClearConv() {
@@ -222,8 +261,10 @@ async function onClearConv() {
 }
 
 async function ensureConv() {
-  if (store.kbConversations.length > 0) {
-    const conv = store.kbConversations[0]
+  // 排除「生成文章」会话，避免问答区误选到生成会话（两者物理隔离）
+  const chatConvs = store.kbConversations.filter(c => (c.title || '') !== '生成文章')
+  if (chatConvs.length > 0) {
+    const conv = chatConvs[0]
     store.currentConvId = conv.conv_id
     return
   }
@@ -234,6 +275,7 @@ async function ensureConv() {
 async function initKB(kbId: string) {
   await store.loadCurrentKB(kbId)
   await ensureConv()
+  await store.ensureGenConv(kbId)
   if (store.currentConvId) {
     const messages = await store.loadConvMessages(store.currentConvId)
     chatPanelRef.value?.loadHistory(messages)
@@ -439,5 +481,22 @@ watch(() => props.kbId, (newId) => {
 .task-btn {
   font-size: 14px;
   color: #6366f1;
+}
+
+:deep(.gen-dialog) {
+  height: 90vh;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+:deep(.gen-dialog .el-dialog__header) {
+  display: none;
+}
+:deep(.gen-dialog .el-dialog__body) {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
 }
 </style>
