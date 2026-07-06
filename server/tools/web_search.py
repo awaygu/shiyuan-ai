@@ -116,6 +116,25 @@ def _parse_kimi_structured(text: str) -> list[dict]:
     # 最后兜底：仅抽裸 URL，title 用 URL 本身
     for m in _KIMI_BARE_URL_RE.finditer(text):
         fallback.append({"title": m.group("url"), "url": m.group("url"), "content": ""})
+    if fallback:
+        return fallback
+
+    # 终极兜底：Kimi 返回的是自由长文（无结构化标记也无链接），
+    # 仍保留为一条结果，保证知识库界面有内容可入库而非“未搜索到结果”。
+    # title 取首个非空行（去掉 markdown 标题符号）；url 留空。
+    stripped = text.strip()
+    if stripped:
+        first_line = ""
+        for line in stripped.splitlines():
+            t = line.strip().lstrip("#").strip()
+            if t:
+                first_line = t
+                break
+        fallback.append({
+            "title": first_line or "联网搜索结果",
+            "url": "",
+            "content": stripped,
+        })
     return fallback
 
 

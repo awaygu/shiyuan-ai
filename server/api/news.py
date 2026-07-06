@@ -25,6 +25,7 @@ async def _bg_crawl_and_save(source: str, crawler) -> None:
     async with deps.news_lock:
         filtered = deps.kw_filter.filter_newsitems(items)
         new_count = 0
+        new_items = []
         for item in filtered:
             item_dict = item.to_dict()
             existing = any(
@@ -33,8 +34,10 @@ async def _bg_crawl_and_save(source: str, crawler) -> None:
             )
             if not existing:
                 deps.news_store.append(item_dict)
+                new_items.append(item_dict)
                 new_count += 1
-        await deps.save_news(deps.news_store)
+        if new_items:
+            await deps.upsert_news(new_items)
     logger.info("[refresh] %s done: %d total, %d new", source, len(items), new_count)
 
 
@@ -67,14 +70,17 @@ async def refresh_news():
 
         filtered = deps.kw_filter.filter_newsitems(all_raw)
         new_count = 0
+        new_items = []
         for item in filtered:
             d = item.to_dict()
             if d["news_id"] not in existing_ids:
                 deps.news_store.append(d)
                 existing_ids.add(d["news_id"])
+                new_items.append(d)
                 new_count += 1
 
-        await deps.save_news(deps.news_store)
+        if new_items:
+            await deps.upsert_news(new_items)
     return {"total": len(deps.news_store), "new": new_count, "total_raw": len(all_raw), "results": results}
 
 
@@ -138,7 +144,7 @@ async def refresh_news_source(source: str):
         crawler = deps.NEWSNOW_CRAWLERS[source]
     elif any(feed.id == source for feed in deps.DEFAULT_RSS_FEEDS):
         feed = next(f for f in deps.DEFAULT_RSS_FEEDS if f.id == source)
-        from crawlers.rss import RSSCrawler
+        from sources.rss import RSSCrawler
         crawler = RSSCrawler(feed)
     else:
         raise HTTPException(400, f"Unknown source: {source}")
@@ -198,7 +204,8 @@ async def refresh_newsnow():
                 deps.news_store.append(item_dict)
                 new_items.append(item_dict)
 
-        await deps.save_news(deps.news_store)
+        if new_items:
+            await deps.upsert_news(new_items)
 
     return {
         "total_new": len(new_items),
@@ -256,7 +263,8 @@ async def refresh_rss():
                 deps.news_store.append(item_dict)
                 new_items.append(item_dict)
 
-        await deps.save_news(deps.news_store)
+        if new_items:
+            await deps.upsert_news(new_items)
 
     return {
         "total_new": len(new_items),

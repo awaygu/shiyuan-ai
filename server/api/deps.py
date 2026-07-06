@@ -37,8 +37,7 @@ from core import NewsInterpreter, StyleType
 from core.style_manager import prompt_manager
 from publishers import XiaohongshuPublisher, WechatMpPublisher, DouyinPublisher
 from database import (
-    append_news,
-    save_news,
+    upsert_news,
     update_news_content,
     clear_news_content_by_source,
     save_article,

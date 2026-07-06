@@ -25,7 +25,7 @@ from sources.newsnow import check_newsnow_health, FALLBACK_API_URL
 from database import (
     init_db,
     load_news,
-    save_news,
+    upsert_news,
     load_articles,
     load_publish_log,
     close_db,
@@ -115,11 +115,12 @@ async def lifespan(app: FastAPI):
 
         all_raw = all_newsnow + all_rss
         filtered = kw_filter.filter_newsitems(all_raw)
-        for item in filtered:
-            _d.news_store.append(item.to_dict())
+        new_items = [item.to_dict() for item in filtered]
+        # 增量入库：已存在的 news_id 跳过，避免全量 DELETE+INSERT
+        if new_items:
+            await upsert_news(new_items)
+        _d.news_store.extend(new_items)
 
-        if _d.news_store:
-            await save_news(_d.news_store)
         logger.info("Total news items: %d (filtered from %d)", len(_d.news_store), len(all_raw))
 
     _d.article_store = await load_articles()

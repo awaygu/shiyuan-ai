@@ -8,9 +8,9 @@ load_dotenv()
 
 # LLM Configuration
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-your-key-here")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
+LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash")
 
 # Server
 HOST = os.getenv("HOST", "0.0.0.0")
@@ -78,7 +78,7 @@ WECHAT_APP_SECRET = os.getenv("WECHAT_APP_SECRET", "")
 
 # Browser automation (Playwright)
 COOKIES_DIR = os.getenv("COOKIES_DIR", str(Path(__file__).parent / "cookies"))
-PUBLISH_HEADLESS = os.getenv("PUBLISH_HEADLESS", "false").lower() == "true"
+PUBLISH_HEADLESS = os.getenv("PUBLISH_HEADLESS", "true").lower() == "true"
 PUBLISH_TIMEOUT = int(os.getenv("PUBLISH_TIMEOUT", "60"))
 # 填好表单后等待用户在浏览器窗口手动点发布的超时（秒）
 PUBLISH_MANUAL_TIMEOUT = int(os.getenv("PUBLISH_MANUAL_TIMEOUT", "600"))

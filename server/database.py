@@ -191,6 +191,40 @@ async def append_news(items: list[dict[str, Any]]) -> None:
     await db.commit()
 
 
+async def upsert_news(items: list[dict[str, Any]]) -> int:
+    """增量入库：已存在的 news_id 跳过（INSERT OR IGNORE），返回实际新增条数。
+
+    替代 save_news 的"DELETE 全量 + INSERT"写法，避免长跑后写入开销线性增长、
+    以及重复 refresh 导致历史数据被全量重写。调用方负责去重后传入新增条目。
+    """
+    if not items:
+        return 0
+    db = await get_db()
+    inserted = 0
+    for item in items:
+        extra_json = json.dumps(item.get("extra", {}), ensure_ascii=False)
+        cur = await db.execute(
+            """
+            INSERT OR IGNORE INTO news
+                (news_id, title, summary, content, source, url, published_at, extra)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item["news_id"],
+                item["title"],
+                item.get("summary", ""),
+                item.get("content", ""),
+                item.get("source", ""),
+                item.get("url", ""),
+                item.get("published_at", ""),
+                extra_json,
+            ),
+        )
+        inserted += cur.rowcount
+    await db.commit()
+    return inserted
+
+
 async def update_news_content(news_id: str, content: str) -> None:
     db = await get_db()
     await db.execute(

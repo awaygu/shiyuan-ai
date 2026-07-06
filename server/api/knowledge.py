@@ -768,7 +768,7 @@ async def _stream_kb_article(
     full_system = prompt_manager.kb_generate_system_prompt + f"\n\n【知识库内容】\n{context_text}"
 
     llm = ChatOpenAI(
-        model="deepseek-chat",
+        model=LLM_MODEL,
         temperature=TEMPERATURE_GENERATE,
         api_key=LLM_API_KEY,
         base_url=LLM_BASE_URL,

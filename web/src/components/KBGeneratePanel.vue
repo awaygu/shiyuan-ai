@@ -66,15 +66,38 @@
 
     <div class="gen-footer">
       <div class="gen-input-area">
-        <el-select v-model="style" class="style-select" size="default">
-          <el-option label="小红书" value="xiaohongshu" />
-          <el-option label="公众号" value="wechat_mp" />
-          <el-option label="抖音" value="douyin" />
+        <el-select
+          v-model="style"
+          class="style-select"
+          popper-class="kb-gen-style-popper"
+          size="default"
+        >
+          <template #prefix>
+            <span class="style-prefix">{{ styleEmoji(style) }}</span>
+          </template>
+          <el-option label="小红书" value="xiaohongshu">
+            <span class="style-option">
+              <span class="style-dot" style="--c:#ff2442"></span>
+              <span>小红书</span>
+            </span>
+          </el-option>
+          <el-option label="公众号" value="wechat_mp">
+            <span class="style-option">
+              <span class="style-dot" style="--c:#07c160"></span>
+              <span>公众号</span>
+            </span>
+          </el-option>
+          <el-option label="抖音" value="douyin">
+            <span class="style-option">
+              <span class="style-dot" style="--c:#000000"></span>
+              <span>抖音</span>
+            </span>
+          </el-option>
         </el-select>
         <el-input
           v-model="extraReq"
           type="textarea"
-          :autosize="{ minRows: 1, maxRows: 5 }"
+          :autosize="{ minRows: 1, maxRows: 8 }"
           placeholder="输入额外要求（可选，如：聚焦新能源、强调数据对比...）"
           :disabled="generating || preparing"
           class="gen-input"
@@ -132,6 +155,15 @@ const preparing = ref(false)
 const pendingExtraReq = ref('')
 
 const canSend = computed(() => store.kbDocuments.length > 0)
+
+const STYLE_EMOJIS: Record<StyleType, string> = {
+  xiaohongshu: '📕',
+  wechat_mp: '📰',
+  douyin: '🎬',
+}
+function styleEmoji(s: StyleType): string {
+  return STYLE_EMOJIS[s] || '✨'
+}
 
 function renderMsgHtml(msg: ChatMessage): string {
   let html = renderSafeMarkdown(msg.content)
@@ -600,12 +632,12 @@ defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
 .gen-input-area {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 6px;
+  padding: 0;
   transition: border-color 0.15s, box-shadow 0.15s;
+  overflow: hidden;
 }
 
 .gen-input-area:focus-within {
@@ -614,8 +646,64 @@ defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
 }
 
 .style-select {
+  flex-shrink:  0;
+  width: 88px;
+  /* 贴满输入区左侧：上下贴边，右侧用分隔线与输入框分界 */
+  align-self: stretch;
+}
+
+/* 平台选择框：透明背景、无圆角、贴满容器左侧 */
+.style-select :deep(.el-select__wrapper) {
+  min-height: 38px;
+  height: 100%;
+  width: 100%;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  border-right: 1px solid #eef0f5;
+  transition: background 0.15s;
+  padding: 0 8px 0 12px;
+}
+
+.style-select :deep(.el-select__wrapper:hover) {
+  background: #f5f6fa;
+}
+
+.style-select :deep(.el-select__wrapper.is-focused) {
+  background: #f5f6fa;
+  box-shadow: none;
+}
+
+.style-select :deep(.el-select__placeholder),
+.style-select :deep(.el-select__selected-item) {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.style-prefix {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* 下拉项：平台色圆点 + 名称 */
+.style-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.style-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c, #94a3b8);
   flex-shrink: 0;
-  width: 110px;
 }
 
 .gen-input {
@@ -625,7 +713,7 @@ defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
 .gen-input :deep(.el-textarea__inner) {
   border: none;
   box-shadow: none;
-  padding: 6px 10px;
+  padding: 9px 14px 9px 12px;
   font-size: 14px;
   line-height: 1.5;
   resize: none;
@@ -640,6 +728,7 @@ defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
 .send-btn {
   width: 34px;
   height: 34px;
+  margin: 2px 4px 2px 0;
   border-radius: 10px;
   border: none;
   background: linear-gradient(135deg, #818cf8, #6366f1);
@@ -661,5 +750,30 @@ defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
   opacity: 0.3;
   cursor: not-allowed;
   transform: none;
+}
+</style>
+
+<!-- 下拉面板 teleport 到 body，需用全局样式 -->
+<style>
+.kb-gen-style-popper.el-popper {
+  border-radius: 10px !important;
+  padding: 4px !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08) !important;
+}
+.kb-gen-style-popper .el-select-dropdown__item {
+  border-radius: 6px;
+  padding: 0 10px;
+  height: 34px;
+  line-height: 34px;
+}
+.kb-gen-style-popper .el-select-dropdown__item.is-hovering,
+.kb-gen-style-popper .el-select-dropdown__item:hover {
+  background: #f5f6fa;
+}
+.kb-gen-style-popper .el-select-dropdown__item.is-selected {
+  color: #4f46e5;
+  font-weight: 600;
+  background: #eef2ff;
 }
 </style>

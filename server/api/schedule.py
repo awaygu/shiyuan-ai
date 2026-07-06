@@ -45,7 +45,7 @@ async def _newsnow_crawl_loop():
                     deps.news_store.append(d)
                     new_items.append(d)
             if new_items:
-                await deps.append_news(new_items)
+                await deps.upsert_news(new_items)
                 logger.info("[Schedule] NewsNow: %d new items saved (filtered from %d)", len(new_items), len(all_items))
             deps.last_newsnow_crawl = datetime.now().isoformat()
         except Exception as e:
@@ -72,7 +72,7 @@ async def _rss_crawl_loop():
                     deps.news_store.append(d)
                     new_items.append(d)
             if new_items:
-                await deps.append_news(new_items)
+                await deps.upsert_news(new_items)
                 logger.info("[Schedule] RSS: %d new items saved (filtered from %d)", len(new_items), len(all_items))
             deps.last_rss_crawl = datetime.now().isoformat()
         except Exception as e:

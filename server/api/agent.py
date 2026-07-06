@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -101,9 +102,9 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
             except Exception as e:
                 results["rss_error"] = str(e)
             filtered = deps.kw_filter.filter_newsitems(all_raw)
-            for item in filtered:
-                deps.news_store.append(item.to_dict())
-            await deps.save_news(deps.news_store)
+            new_items = [item.to_dict() for item in filtered]
+            deps.news_store.extend(new_items)
+            await deps.upsert_news(new_items)
         return json.dumps({
             "total_news": len(deps.news_store),
             "source_results": results,
@@ -117,7 +118,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
             items = await crawler.crawl()
         elif any(feed.id == source for feed in deps.DEFAULT_RSS_FEEDS):
             feed = next(f for f in deps.DEFAULT_RSS_FEEDS if f.id == source)
-            from crawlers.rss import RSSCrawler
+            from sources.rss import RSSCrawler
             crawler = RSSCrawler(feed)
             items = await crawler.crawl()
         else:
@@ -126,12 +127,15 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         async with deps.news_lock:
             filtered = deps.kw_filter.filter_newsitems(items)
             new_count = 0
+            new_items = []
             for item in filtered:
                 item_dict = item.to_dict()
                 if not any(n["news_id"] == item_dict["news_id"] for n in deps.news_store):
                     deps.news_store.append(item_dict)
+                    new_items.append(item_dict)
                     new_count += 1
-            await deps.save_news(deps.news_store)
+            if new_items:
+                await deps.upsert_news(new_items)
         return json.dumps({"source": source, "total": len(items), "new": new_count}, ensure_ascii=False)
 
     @tool
@@ -723,9 +727,9 @@ async def execute_action(req: ExecuteRequest):
             except Exception as e:
                 results["rss"] = {"status": "error", "error": str(e)}
             filtered = deps.kw_filter.filter_newsitems(all_raw)
-            for item in filtered:
-                deps.news_store.append(item.to_dict())
-            await deps.save_news(deps.news_store)
+            new_items = [item.to_dict() for item in filtered]
+            deps.news_store.extend(new_items)
+            await deps.upsert_news(new_items)
         return {"success": True, "action": action, "total_news": len(deps.news_store), "results": results}
 
     elif action == "refresh_source":
@@ -737,7 +741,7 @@ async def execute_action(req: ExecuteRequest):
             items = await crawler.crawl()
         elif any(feed.id == source for feed in deps.DEFAULT_RSS_FEEDS):
             feed = next(f for f in deps.DEFAULT_RSS_FEEDS if f.id == source)
-            from crawlers.rss import RSSCrawler
+            from sources.rss import RSSCrawler
             crawler = RSSCrawler(feed)
             items = await crawler.crawl()
         else:
@@ -745,12 +749,15 @@ async def execute_action(req: ExecuteRequest):
         async with deps.news_lock:
             filtered = deps.kw_filter.filter_newsitems(items)
             new_count = 0
+            new_items = []
             for item in filtered:
                 item_dict = item.to_dict()
                 if not any(n["news_id"] == item_dict["news_id"] for n in deps.news_store):
                     deps.news_store.append(item_dict)
+                    new_items.append(item_dict)
                     new_count += 1
-            await deps.save_news(deps.news_store)
+            if new_items:
+                await deps.upsert_news(new_items)
         return {"success": True, "action": action, "source": source, "total": len(items), "new": new_count}
 
     else:
