@@ -15,7 +15,7 @@
         </template>
       </el-popconfirm>
     </div>
-    <div class="chat-body" ref="messagesRef">
+    <div ref="messagesRef" class="chat-body">
       <div v-for="(msg, i) in messages" :key="i" class="msg-row" :class="msg.role">
         <div class="msg-avatar">
           <div v-if="msg.role === 'assistant'" class="avatar-ai">
@@ -91,8 +91,8 @@
           :autosize="{ minRows: 1, maxRows: 5 }"
           placeholder="输入问题，AI 将检索知识库回答..."
           :disabled="generating"
-          @keydown.enter.exact="onInputEnter"
           class="chat-input"
+          @keydown.enter.exact="onInputEnter"
         />
         <button class="send-btn" :disabled="!chatMessage.trim() || generating" @click="sendChat">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -208,7 +208,7 @@ function injectCitations(html: string, sources: KBSource[] | undefined): string 
     const s = sources[idx - 1]
     const page = s.page ? ` · 第${s.page}页` : ''
     const tip = `${s.filename}${page}`
-    return `<sup class="cite-ref" data-tip="${escapeAttr(tip)}" data-text="${escapeAttr(s.text || s.preview || '')}">[${idx}]</sup>`
+    return `<sup class="cite-ref" data-tip="${escapeAttr(tip)}" data-text="${escapeAttr(s.preview || '')}">[${idx}]</sup>`
   })
 }
 
@@ -369,7 +369,7 @@ async function sendChat() {
         messages.value[msgIdx].content += text
         scrollToBottom()
       },
-      onSources(sources: { filename: string; score: number }[]) {
+      onSources(sources) {
         messages.value[msgIdx].sources = sources as KBSource[]
       },
       onMeta(meta) {

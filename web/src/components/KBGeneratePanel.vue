@@ -25,7 +25,7 @@
       </div>
     </div>
 
-    <div class="gen-body" ref="messagesRef">
+    <div ref="messagesRef" class="gen-body">
       <div v-for="(msg, i) in messages" :key="i" class="msg-row" :class="msg.role">
         <div class="msg-avatar">
           <div v-if="msg.role === 'assistant'" class="avatar-ai">
@@ -300,7 +300,7 @@ function doGenerate(s: StyleType, extraReqText: string) {
         messages.value[msgIdx].content += text
         scrollToBottom()
       },
-      onSources(sources: { filename: string; score: number }[]) {
+      onSources(sources) {
         messages.value[msgIdx].sources = sources as KBSource[]
       },
       onDone() {

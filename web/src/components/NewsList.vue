@@ -11,10 +11,10 @@
           :loading="store.loading"
           :disabled="store.loading"
           circle
-          @click="onRefresh"
           title="刷新当前来源"
+          @click="onRefresh"
         />
-        <el-button size="small" circle @click="emit('toggle-keywords')" title="关键词过滤设置">
+        <el-button size="small" circle title="关键词过滤设置" @click="emit('toggle-keywords')">
           <el-icon><Setting /></el-icon>
         </el-button>
         <el-select
@@ -54,9 +54,9 @@
         <div class="card-header">
           <el-checkbox
             :model-value="store.selectedNewsIds.includes(item.news_id)"
+            size="small"
             @change="() => store.toggleSelect(item.news_id)"
             @click.stop
-            size="small"
           />
           <div class="card-clickable" @click="openDetail(item)">
             <div class="card-title">

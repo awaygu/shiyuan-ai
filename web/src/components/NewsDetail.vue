@@ -4,7 +4,7 @@
       <div class="detail-top">
         <div class="detail-title-row">
           <h2 class="detail-title">{{ news.title }}</h2>
-          <el-button text size="small" @click="store.closeDetail()" title="关闭详情">
+          <el-button text size="small" title="关闭详情" @click="store.closeDetail()">
             <el-icon :size="18"><Close /></el-icon>
           </el-button>
         </div>

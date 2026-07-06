@@ -1,89 +1,95 @@
 <template>
   <div class="publish-panel">
-    <el-tabs v-model="activeTab">
-      <el-tab-pane label="已生成文章" name="articles">
-        <div v-if="store.articles.length === 0" class="empty-state">
-          <el-empty description="暂无文章，请先在生成文章标签中生成" />
-        </div>
+    <div class="publish-main">
+      <el-tabs v-model="activeTab">
+        <el-tab-pane label="已生成文章" name="articles">
+          <div v-if="store.articles.length === 0" class="empty-state">
+            <el-empty description="暂无文章，请先在生成文章标签中生成" />
+          </div>
 
-        <div v-else class="article-list">
-          <div v-for="art in store.articles" :key="art.article_id" class="article-card">
-            <div class="art-title">{{ art.title }}</div>
-            <div class="art-meta">
-              <el-tag size="small" effect="plain" :type="getStyleTagType(art.style)">
-                {{ getStyleLabel(art.style) }}
-              </el-tag>
-              <span class="art-id">#{{ art.article_id }}</span>
-            </div>
-            <el-divider style="margin: 6px 0" />
-            <div
-              class="art-content-preview"
-              v-html="renderMarkdown(art.content.slice(0, 200) + '...')"
-            ></div>
+          <div v-else class="article-list">
+            <div v-for="art in store.articles" :key="art.article_id" class="article-card">
+              <div class="art-title">{{ art.title }}</div>
+              <div class="art-meta">
+                <el-tag size="small" effect="plain" :type="getStyleTagType(art.style)">
+                  {{ getStyleLabel(art.style) }}
+                </el-tag>
+                <span class="art-id">#{{ art.article_id }}</span>
+              </div>
+              <el-divider style="margin: 6px 0" />
+              <div
+                class="art-content-preview"
+                v-html="renderMarkdown(art.content.slice(0, 200) + '...')"
+              ></div>
 
-            <div class="art-actions">
-              <el-dropdown
-                @command="(platform: string) => onPublishCommand(art.article_id, platform)"
-              >
-                <el-button type="primary" size="small">
-                  发布到 <el-icon><ArrowDown /></el-icon>
-                </el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="xiaohongshu">
-                      <el-icon><ChatDotSquare /></el-icon> 小红书
-                    </el-dropdown-item>
-                    <el-dropdown-item command="wechat_mp">
-                      <el-icon><Message /></el-icon> 微信公众号
-                    </el-dropdown-item>
-                    <el-dropdown-item command="douyin">
-                      <el-icon><VideoCamera /></el-icon> 抖音
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
+              <div class="art-actions">
+                <el-dropdown
+                  @command="(platform: string) => onPublishCommand(art.article_id, platform)"
+                >
+                  <el-button type="primary" size="small">
+                    发布到 <el-icon><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="xiaohongshu">
+                        <el-icon><ChatDotSquare /></el-icon> 小红书
+                      </el-dropdown-item>
+                      <el-dropdown-item command="wechat_mp">
+                        <el-icon><Message /></el-icon> 微信公众号
+                      </el-dropdown-item>
+                      <el-dropdown-item command="douyin">
+                        <el-icon><VideoCamera /></el-icon> 抖音
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
             </div>
           </div>
-        </div>
-      </el-tab-pane>
+        </el-tab-pane>
 
-      <el-tab-pane label="发布记录" name="log">
-        <div v-if="store.publishLog.length === 0" class="empty-state">
-          <el-empty description="暂无发布记录" />
-        </div>
+        <el-tab-pane label="发布记录" name="log">
+          <div v-if="store.publishLog.length === 0" class="empty-state">
+            <el-empty description="暂无发布记录" />
+          </div>
 
-        <el-timeline v-else>
-          <el-timeline-item
-            v-for="rec in store.publishLog"
-            :key="rec.article_id + rec.platform + rec.timestamp"
-            :timestamp="formatTime(rec.timestamp)"
-            :type="rec.success ? 'success' : 'danger'"
-          >
-            <div>
-              <strong>{{ getPlatformLabel(rec.platform) }}</strong>
-              — {{ rec.success ? '✅ 发布成功' : '❌ 发布失败' }}
-              <el-link
-                v-if="rec.url"
-                :href="rec.url"
-                target="_blank"
-                type="primary"
-                style="margin-left: 8px"
-              >
-                查看
-              </el-link>
-            </div>
-          </el-timeline-item>
-        </el-timeline>
-      </el-tab-pane>
-    </el-tabs>
+          <el-timeline v-else>
+            <el-timeline-item
+              v-for="rec in store.publishLog"
+              :key="rec.article_id + rec.platform + rec.timestamp"
+              :timestamp="formatTime(rec.timestamp)"
+              :type="rec.success ? 'success' : 'danger'"
+            >
+              <div>
+                <strong>{{ getPlatformLabel(rec.platform) }}</strong>
+                — {{ rec.success ? '✅ 发布成功' : '❌ 发布失败' }}
+                <el-link
+                  v-if="rec.url"
+                  :href="rec.url"
+                  target="_blank"
+                  type="primary"
+                  style="margin-left: 8px"
+                >
+                  查看
+                </el-link>
+              </div>
+            </el-timeline-item>
+          </el-timeline>
+        </el-tab-pane>
+      </el-tabs>
 
-    <WechatImageOptionsDialog
-      v-model="imageOptsVisible"
-      v-model:generate-cover="imageOpts.generate_cover"
-      v-model:generate-inline-images="imageOpts.generate_inline_images"
-      @confirm="confirmPublish"
-      @cancel="cancelPublish"
-    />
+      <WechatImageOptionsDialog
+        v-model="imageOptsVisible"
+        v-model:generate-cover="imageOpts.generate_cover"
+        v-model:generate-inline-images="imageOpts.generate_inline_images"
+        @confirm="confirmPublish"
+        @cancel="cancelPublish"
+      />
+    </div>
+
+    <div class="publish-agent">
+      <FloatingAgent embedded />
+    </div>
   </div>
 </template>
 
@@ -96,6 +102,7 @@ import { STYLE_LABELS, PLATFORM_LABELS } from '@/types'
 import type { ImagePublishOptions } from '@/composables/useWechatPublish'
 import { useWechatPublish } from '@/composables/useWechatPublish'
 import WechatImageOptionsDialog from '@/components/WechatImageOptionsDialog.vue'
+import FloatingAgent from '@/components/FloatingAgent.vue'
 
 const store = useNewsStore()
 const activeTab = ref('articles')
@@ -160,8 +167,37 @@ onMounted(async () => {
 .publish-panel {
   height: 100%;
   display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.publish-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 16px;
+}
+
+.publish-main :deep(.el-tabs) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.publish-main :deep(.el-tabs__content) {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.publish-agent {
+  width: 420px;
+  flex-shrink: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #fff;
 }
 
 .panel-header h2 {
@@ -237,5 +273,22 @@ onMounted(async () => {
 .art-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+@media (max-width: 1200px) {
+  .publish-agent {
+    width: 360px;
+  }
+}
+
+@media (max-width: 900px) {
+  .publish-panel {
+    flex-direction: column;
+  }
+  .publish-agent {
+    width: 100%;
+    height: 50%;
+    border-top: 1px solid #e0e7ff;
+  }
 }
 </style>

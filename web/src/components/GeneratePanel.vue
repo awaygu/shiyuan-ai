@@ -30,9 +30,9 @@
       <el-button
         type="primary"
         :disabled="store.selectedNewsIds.length === 0 || generating"
-        @click="generateArticle"
         :loading="generating"
         style="width: 100%"
+        @click="generateArticle"
       >
         <el-icon><MagicStick /></el-icon> {{ generating ? '生成中...' : '生成文章' }}
       </el-button>
@@ -56,7 +56,7 @@
           {{ getStyleLabel(currentStyle) }}
         </el-tag>
       </div>
-      <div class="preview-content" ref="previewRef">
+      <div ref="previewRef" class="preview-content">
         <div v-if="generating && !generatedContent" class="loading-hint">
           ⏳ 正在获取原文并生成中...
         </div>

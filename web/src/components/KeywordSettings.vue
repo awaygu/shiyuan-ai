@@ -2,7 +2,7 @@
   <div class="kw-settings">
     <div class="kw-header">
       <h3>🔑 关键词过滤</h3>
-      <button class="kw-close" @click="emit('close')" title="关闭">
+      <button class="kw-close" title="关闭" @click="emit('close')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
           <path
             d="M9 5L16 12L9 19"
@@ -17,7 +17,7 @@
 
     <div class="kw-toolbar">
       <span class="kw-summary">{{ totalRules }} 条规则 · {{ groups.length }} 个分组</span>
-      <el-button size="small" @click="addGroup" :icon="Plus" circle title="新增分组" />
+      <el-button size="small" :icon="Plus" circle title="新增分组" @click="addGroup" />
     </div>
 
     <div class="kw-body">
@@ -59,7 +59,7 @@
             }}</span>
           </template>
           <span class="kw-group-count">{{ group.keywords.length }}</span>
-          <button class="kw-group-del" @click.stop="removeGroup(gi)" title="删除分组">
+          <button class="kw-group-del" title="删除分组" @click.stop="removeGroup(gi)">
             <el-icon><Delete /></el-icon>
           </button>
         </div>
@@ -79,11 +79,11 @@
           <div class="kw-add-row">
             <el-input
               :model-value="newKeywords[gi] ?? ''"
-              @update:model-value="(val: string) => (newKeywords[gi] = val)"
               size="small"
               placeholder="输入关键词，/正则/ 格式为正则"
-              @keyup.enter="addKeyword(gi)"
               class="kw-add-input"
+              @update:model-value="(val: string) => (newKeywords[gi] = val)"
+              @keyup.enter="addKeyword(gi)"
             />
             <el-button size="small" type="primary" @click="addKeyword(gi)">添加</el-button>
           </div>
@@ -92,7 +92,7 @@
     </div>
 
     <div class="kw-footer">
-      <el-button type="primary" :loading="store.kwLoading" @click="onSave" class="kw-save-btn">
+      <el-button type="primary" :loading="store.kwLoading" class="kw-save-btn" @click="onSave">
         保存并生效
       </el-button>
     </div>

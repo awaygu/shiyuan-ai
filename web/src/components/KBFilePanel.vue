@@ -24,8 +24,8 @@
           v-model="searchQuery"
           placeholder="联网搜索，结果可加入知识库"
           :disabled="searching"
-          @keydown.enter="onSearch"
           class="search-input"
+          @keydown.enter="onSearch"
         >
           <template #prefix>
             <el-icon><Search /></el-icon>
@@ -98,8 +98,8 @@
             >
               <el-checkbox
                 :model-value="selectedResultIds.includes(idx)"
-                @change="toggleResultSelection(idx)"
                 class="result-check"
+                @change="toggleResultSelection(idx)"
               />
               <div class="result-main">
                 <div class="result-title-row">
@@ -187,8 +187,8 @@
       >
         <el-checkbox
           :model-value="store.kbSelectedDocIds.includes(doc.doc_id)"
-          @change="store.toggleDocSelection(doc.doc_id)"
           class="doc-check"
+          @change="store.toggleDocSelection(doc.doc_id)"
         />
         <div class="doc-icon">{{ fileIcon(doc.file_type) }}</div>
         <div class="doc-info" @click="onDocClick(doc)">
@@ -233,8 +233,8 @@
           text
           size="small"
           :loading="store.kbDeleting"
-          @click.stop="onDelete(doc.doc_id, doc.filename)"
           class="doc-del"
+          @click.stop="onDelete(doc.doc_id, doc.filename)"
         >
           <el-icon><Delete /></el-icon>
         </el-button>
@@ -246,7 +246,7 @@
 <script setup lang="ts">
 import { UploadFilled, Loading, FolderOpened, Delete, Edit, Search } from '@element-plus/icons-vue'
 import { useNewsStore } from '@/stores'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElInput } from 'element-plus'
 import { ref, nextTick } from 'vue'
 import type { KBDoc } from '@/types'
 import { webSearchKB, ingestTextToKB, type WebSearchItem } from '@/api'

@@ -1,7 +1,7 @@
 <template>
   <!-- Bubble button (collapsed) -->
   <div
-    v-if="!expanded"
+    v-if="!embedded && !expanded"
     class="agent-bubble"
     :style="props.offsetRight ? { right: 48 + props.offsetRight + 'px' } : {}"
     @click="openPanel"
@@ -149,14 +149,17 @@
 
   <!-- Chat panel (expanded) -->
   <div
-    v-if="expanded"
-    class="agent-panel"
-    :style="panelStyle"
-    :class="{ dragging: isDragging || isResizing, docked: dockedRight, undocking: undocking }"
+    v-if="embedded || expanded"
     ref="panelRef"
+    class="agent-panel"
+    :class="[
+      { dragging: isDragging || isResizing, docked: dockedRight, undocking: undocking },
+      { 'agent-panel-embedded': embedded },
+    ]"
+    :style="panelStyle"
   >
     <!-- Draggable header -->
-    <div class="panel-header" @mousedown="startDrag">
+    <div class="panel-header" :class="{ 'panel-header-embedded': embedded }" @mousedown="startDrag">
       <div class="header-left">
         <svg width="20" height="20" viewBox="0 0 48 48" fill="none">
           <path
@@ -197,7 +200,7 @@
         <span class="header-btn" title="新对话" @mousedown.stop @click.stop="startNewConversation"
           >+</span
         >
-        <span class="header-btn" @mousedown.stop @click.stop="closePanel">✕</span>
+        <span v-if="!embedded" class="header-btn" @mousedown.stop @click.stop="closePanel">✕</span>
       </div>
     </div>
 
@@ -224,7 +227,7 @@
     </div>
 
     <!-- Messages -->
-    <div class="panel-body" ref="messagesRef">
+    <div ref="messagesRef" class="panel-body">
       <div v-for="(msg, i) in messages" :key="i" class="msg-row" :class="msg.role">
         <div class="msg-avatar">
           <div v-if="msg.role === 'assistant'" class="avatar-ai">🤖</div>
@@ -305,8 +308,8 @@
           :autosize="{ minRows: 1, maxRows: 5 }"
           placeholder="输入消息，Enter 发送，Shift+Enter 换行"
           :disabled="generating"
-          @keydown.enter.exact="onInputEnter"
           class="chat-input"
+          @keydown.enter.exact="onInputEnter"
         />
         <button class="send-btn" :disabled="!chatMessage.trim() || generating" @click="sendChat">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -335,7 +338,7 @@
     <div v-if="isDragging && snapPreview" class="snap-preview"></div>
 
     <!-- Resize handles -->
-    <template v-if="!dockedRight">
+    <template v-if="!embedded && !dockedRight">
       <div class="resize-handle resize-t" @mousedown.stop="e => startResize(e, 't')"></div>
       <div class="resize-handle resize-tl" @mousedown.stop="e => startResize(e, 'tl')"></div>
       <div class="resize-handle resize-tr" @mousedown.stop="e => startResize(e, 'tr')"></div>
@@ -344,7 +347,11 @@
       <div class="resize-handle resize-bl" @mousedown.stop="e => startResize(e, 'bl')"></div>
       <div class="resize-handle resize-br" @mousedown.stop="e => startResize(e, 'br')"></div>
     </template>
-    <div class="resize-handle resize-l" @mousedown.stop="e => startResize(e, 'l')"></div>
+    <div
+      v-if="!embedded"
+      class="resize-handle resize-l"
+      @mousedown.stop="e => startResize(e, 'l')"
+    ></div>
   </div>
 </template>
 
@@ -371,7 +378,10 @@ import { useWechatPublish } from '@/composables/useWechatPublish'
 import WechatImageOptionsDialog from '@/components/WechatImageOptionsDialog.vue'
 import { renderSafeMarkdown } from '@/utils/markdown'
 
-const props = withDefaults(defineProps<{ offsetRight?: number }>(), { offsetRight: 0 })
+const props = withDefaults(defineProps<{ offsetRight?: number; embedded?: boolean }>(), {
+  offsetRight: 0,
+  embedded: false,
+})
 const store = useNewsStore()
 const route = useRoute()
 const isNewsPage = computed(() => route.name === 'news')
@@ -432,6 +442,13 @@ const messages = ref<ChatMessage[]>([
 ])
 
 const panelStyle = computed(() => {
+  if (props.embedded) {
+    return {
+      width: '100%',
+      height: '100%',
+      borderRadius: '0',
+    }
+  }
   if (dockedRight.value) {
     return {
       right: '24px',
@@ -897,6 +914,7 @@ async function sendChat() {
 // ── Drag ────────────────────────────────────────────────────
 
 function startDrag(e: MouseEvent) {
+  if (props.embedded) return
   e.preventDefault()
   if (dockedRight.value) {
     preDockW.value = panelW.value
@@ -918,6 +936,7 @@ function startDrag(e: MouseEvent) {
 // ── Resize ──────────────────────────────────────────────────
 
 function startResize(e: MouseEvent, dir: 't' | 'b' | 'l' | 'r' | 'tl' | 'tr' | 'bl' | 'br') {
+  if (props.embedded) return
   e.preventDefault()
   e.stopPropagation()
   isResizing.value = true
@@ -1196,6 +1215,14 @@ onBeforeUnmount(() => {
   border-radius: 0 0 0 2px;
 }
 
+.agent-panel.agent-panel-embedded {
+  position: relative;
+  border-radius: 0;
+  box-shadow: none;
+  border-left: 1px solid #e0e7ff;
+  transition: none;
+}
+
 .panel-header {
   display: flex;
   align-items: center;
@@ -1206,6 +1233,10 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid #eef0f5;
   cursor: move;
   flex-shrink: 0;
+}
+
+.panel-header-embedded {
+  cursor: default;
 }
 
 .header-left {

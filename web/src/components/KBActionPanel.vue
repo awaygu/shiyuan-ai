@@ -14,8 +14,8 @@
 
         <button
           class="style-btn style-xiaohongshu"
-          @click="onGenerate('xiaohongshu')"
           :disabled="generating || noDocs"
+          @click="onGenerate('xiaohongshu')"
         >
           <span class="style-emoji">✨</span>
           <span class="style-name">小红书</span>
@@ -24,8 +24,8 @@
 
         <button
           class="style-btn style-wechat"
-          @click="onGenerate('wechat_mp')"
           :disabled="generating || noDocs"
+          @click="onGenerate('wechat_mp')"
         >
           <span class="style-emoji">📰</span>
           <span class="style-name">公众号</span>
@@ -34,8 +34,8 @@
 
         <button
           class="style-btn style-douyin"
-          @click="onGenerate('douyin')"
           :disabled="generating || noDocs"
+          @click="onGenerate('douyin')"
         >
           <span class="style-emoji">🎬</span>
           <span class="style-name">抖音</span>
@@ -73,8 +73,8 @@
         <button
           class="vertical-btn style-xiaohongshu"
           data-label="小红书"
-          @click="onGenerate('xiaohongshu')"
           :disabled="generating || noDocs"
+          @click="onGenerate('xiaohongshu')"
         >
           <span class="vertical-emoji">✨</span>
         </button>
@@ -82,8 +82,8 @@
         <button
           class="vertical-btn style-wechat"
           data-label="公众号"
-          @click="onGenerate('wechat_mp')"
           :disabled="generating || noDocs"
+          @click="onGenerate('wechat_mp')"
         >
           <span class="vertical-emoji">📰</span>
         </button>
@@ -91,8 +91,8 @@
         <button
           class="vertical-btn style-douyin"
           data-label="抖音"
-          @click="onGenerate('douyin')"
           :disabled="generating || noDocs"
+          @click="onGenerate('douyin')"
         >
           <span class="vertical-emoji">🎬</span>
         </button>

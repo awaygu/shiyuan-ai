@@ -1,10 +1,10 @@
 <template>
   <div class="kb-container">
     <div class="kb-header">
-      <el-button text @click="$router.push('/')" class="back-btn">
+      <el-button text class="back-btn" @click="$router.push('/')">
         <el-icon><ArrowLeft /></el-icon> 首页
       </el-button>
-      <div class="header-info" v-if="store.currentKB">
+      <div v-if="store.currentKB" class="header-info">
         <span class="title-icon">{{
           getKbIcon(store.currentKB.name, store.currentKB.description)
         }}</span>
@@ -44,7 +44,7 @@
       </div>
       <div class="header-right">
         <el-badge :value="store.runningTaskCount" :hidden="store.runningTaskCount === 0" :max="9">
-          <el-button text @click="store.toggleTaskPanel" class="task-btn">
+          <el-button text class="task-btn" @click="store.toggleTaskPanel">
             <el-icon><List /></el-icon> 任务
           </el-button>
         </el-badge>
@@ -67,8 +67,8 @@
         <button
           v-if="!showSidebar"
           class="expand-sidebar-btn"
-          @click="showSidebar = true"
           title="展开文件管理"
+          @click="showSidebar = true"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path
@@ -108,8 +108,8 @@
       </el-dialog>
 
       <div
-        class="resize-handle resize-handle-right"
         v-if="!actionsCollapsed"
+        class="resize-handle resize-handle-right"
         @mousedown="startResize('right', $event)"
       ></div>
       <div
@@ -147,8 +147,7 @@ import TaskPanel from '@/components/TaskPanel.vue'
 import { useNewsStore } from '@/stores'
 import type { StyleType } from '@/types'
 import { getKbIcon } from '@/types'
-import { ElMessage } from 'element-plus'
-import type { InputInstance } from 'element-plus'
+import { ElMessage, ElInput } from 'element-plus'
 import { Edit } from '@element-plus/icons-vue'
 
 const props = defineProps<{ kbId: string }>()
@@ -209,8 +208,8 @@ const editingTitle = ref(false)
 const editingDesc = ref(false)
 const editName = ref('')
 const editDesc = ref('')
-const titleInputRef = ref<InputInstance | null>(null)
-const descInputRef = ref<InputInstance | null>(null)
+const titleInputRef = ref<InstanceType<typeof ElInput> | null>(null)
+const descInputRef = ref<InstanceType<typeof ElInput> | null>(null)
 
 function startEditTitle() {
   editName.value = store.currentKB?.name || ''
@@ -293,7 +292,9 @@ async function ensureConv() {
     return
   }
   const conv = await store.createConv()
-  store.currentConvId = conv?.conv_id || ''
+  if (conv) {
+    store.currentConvId = conv.conv_id
+  }
 }
 
 async function initKB(kbId: string) {

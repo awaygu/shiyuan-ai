@@ -2,23 +2,31 @@
   <el-container class="app-container">
     <el-header class="app-header" height="52px">
       <div class="header-left">
-        <el-button text @click="$router.push('/')" class="back-btn">
+        <el-button text class="back-btn" @click="$router.push('/')">
           <el-icon><ArrowLeft /></el-icon> 首页
         </el-button>
         <span class="title">📰 识渊 · 新闻解读</span>
       </div>
       <div class="header-right">
         <el-badge :value="store.runningTaskCount" :hidden="store.runningTaskCount === 0" :max="9">
-          <el-button text @click="store.toggleTaskPanel" class="task-btn">
+          <el-button text class="task-btn" @click="store.toggleTaskPanel">
             <el-icon><List /></el-icon> 任务
           </el-button>
         </el-badge>
+        <el-button
+          text
+          class="publish-btn"
+          :type="showPublishPanel ? 'primary' : undefined"
+          @click="showPublishPanel = !showPublishPanel"
+        >
+          <el-icon><Promotion /></el-icon> 发布
+        </el-button>
         <el-tag type="success" effect="dark" size="small">🟢 运行中</el-tag>
       </div>
     </el-header>
 
     <el-main class="app-main">
-      <div class="two-columns" ref="columnsRef">
+      <div ref="columnsRef" class="two-columns">
         <div class="column column-left" :style="{ width: leftWidth + 'px', flex: 'none' }">
           <NewsList @toggle-keywords="showKeywords = !showKeywords" />
         </div>
@@ -50,6 +58,16 @@
             <TaskPanel @close="store.showTaskPanel = false" />
           </div>
         </transition>
+
+        <transition name="slide-right">
+          <div
+            v-if="showPublishPanel"
+            class="column column-publish"
+            :style="{ width: publishWidth + 'px', flex: 'none' }"
+          >
+            <PublishPanel />
+          </div>
+        </transition>
       </div>
     </el-main>
   </el-container>
@@ -61,6 +79,7 @@ import NewsList from '@/components/NewsList.vue'
 import NewsDetail from '@/components/NewsDetail.vue'
 import KeywordSettings from '@/components/KeywordSettings.vue'
 import TaskPanel from '@/components/TaskPanel.vue'
+import PublishPanel from '@/components/PublishPanel.vue'
 import { useNewsStore } from '@/stores'
 
 const store = useNewsStore()
@@ -72,6 +91,8 @@ const MIN_LEFT = 260
 const showKeywords = ref(false)
 const kwWidth = ref(320)
 const taskWidth = ref(340)
+const showPublishPanel = ref(false)
+const publishWidth = ref(460)
 
 let resizing = false
 let startX = 0
@@ -179,6 +200,11 @@ onBeforeUnmount(() => {
   color: #6366f1;
 }
 
+.publish-btn {
+  font-size: 14px;
+  color: #6366f1;
+}
+
 .app-main {
   flex: 1;
   padding: 12px;
@@ -214,6 +240,15 @@ onBeforeUnmount(() => {
 }
 
 .column-task {
+  background: #fff;
+  border-radius: 8px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  margin-left: 4px;
+}
+
+.column-publish {
   background: #fff;
   border-radius: 8px;
   padding: 0;
