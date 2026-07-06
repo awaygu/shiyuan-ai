@@ -16,8 +16,10 @@ pip install -r requirements.txt
 playwright install chromium                         # 发布模块必需
 python app.py                                       # 启动 FastAPI（uvicorn, reload），端口 :8000
 # 或：python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+
+python -m pytest                                    # 运行后端测试（含覆盖率，配置见 pytest.ini）
 ```
-API 文档地址 `http://localhost:8000/docs`。无测试套件——`server/tests/` 为空目录。未配置 lint；`scripts/clear_kb.py` 是破坏性维护脚本（清空所有知识库数据），仅在显式要求时执行。
+API 文档地址 `http://localhost:8000/docs`。未配置 lint；`scripts/clear_kb.py` 是破坏性维护脚本（清空所有知识库数据），仅在显式要求时执行。
 
 ### 前端（`web/`）
 ```bash
@@ -26,6 +28,8 @@ npm install
 npm run dev       # Vite 开发服务器，端口 :8088，/api 代理到 :8000
 npm run build     # vue-tsc --noEmit && vite build（类型检查内嵌于 build）
 npm run preview
+npm run test      # 运行 vitest 单元测试
+npm run test:coverage  # 运行测试并生成覆盖率报告
 ```
 类型检查通过 `npm run build` 中的 `vue-tsc --noEmit` 完成——没有单独的 `typecheck` 脚本。
 
