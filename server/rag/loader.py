@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 
 # 清洗 PDF 解析乱码：cid(...) 占位符、Unicode 替换字符、控制字符、零宽字符等
 _GARBLED_RE = re.compile(
-    r'cid\(\d+\)'          # pdfplumber 的 cid 占位符
-    r'|[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]'  # C0/C1 控制字符（保留 \n\t\r）
-    r'|[​-‏ - ﻿]'       # 零宽字符、换行分隔符、BOM
-    r'|�'              # Unicode 替换字符（�）
+    r"cid\(\d+\)"  # pdfplumber 的 cid 占位符
+    r"|[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]"  # C0/C1 控制字符（保留 \n\t\r）
+    r"|[​-‏ - ﻿]"  # 零宽字符、换行分隔符、BOM
+    r"|�"  # Unicode 替换字符（�）
 )
 
 
@@ -25,8 +25,8 @@ def _clean_text(text: str) -> str:
         return ""
     text = _GARBLED_RE.sub("", text)
     # 合并连续空白
-    text = re.sub(r'[ \t]+', ' ', text)
-    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
 
@@ -121,16 +121,14 @@ class DocumentLoader:
     def _load_image(self, path: Path) -> list[PageText]:
         from io import BytesIO
 
-        from PIL import Image
         from openai import OpenAI
+        from PIL import Image
 
-        from config import DASHSCOPE_API_KEY, KB_VISION_MODEL, KB_VISION_BASE_URL, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+        from config import DASHSCOPE_API_KEY, KB_VISION_BASE_URL, KB_VISION_MODEL, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
         from core.style_manager import prompt_manager
 
         img = Image.open(str(path))
-        if img.mode == "RGBA":
-            img = img.convert("RGB")
-        elif img.mode not in ("RGB", "L"):
+        if img.mode == "RGBA" or img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
 
         buf = BytesIO()

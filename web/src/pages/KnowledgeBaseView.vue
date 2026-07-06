@@ -5,7 +5,9 @@
         <el-icon><ArrowLeft /></el-icon> 首页
       </el-button>
       <div class="header-info" v-if="store.currentKB">
-        <span class="title-icon">{{ getKbIcon(store.currentKB.name, store.currentKB.description) }}</span>
+        <span class="title-icon">{{
+          getKbIcon(store.currentKB.name, store.currentKB.description)
+        }}</span>
         <template v-if="editingTitle">
           <el-input
             ref="titleInputRef"
@@ -34,7 +36,9 @@
           />
         </template>
         <template v-else>
-          <span class="desc-text" @dblclick="startEditDesc">{{ store.currentKB.description || '添加描述' }}</span>
+          <span class="desc-text" @dblclick="startEditDesc">{{
+            store.currentKB.description || '添加描述'
+          }}</span>
           <el-icon class="edit-hint" @click="startEditDesc"><Edit /></el-icon>
         </template>
       </div>
@@ -60,8 +64,21 @@
       ></div>
 
       <div class="kb-main">
-        <button v-if="!showSidebar" class="expand-sidebar-btn" @click="showSidebar = true" title="展开文件管理">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <button
+          v-if="!showSidebar"
+          class="expand-sidebar-btn"
+          @click="showSidebar = true"
+          title="展开文件管理"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M9 5L16 12L9 19"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
         </button>
         <KBChatPanel
           ref="chatPanelRef"
@@ -95,7 +112,13 @@
         v-if="!actionsCollapsed"
         @mousedown="startResize('right', $event)"
       ></div>
-      <div class="kb-actions" :style="{ width: (actionsCollapsed ? COLLAPSED_ACTIONS_WIDTH : actionsWidth) + 'px', overflow: actionsCollapsed ? 'visible' : 'hidden' }">
+      <div
+        class="kb-actions"
+        :style="{
+          width: (actionsCollapsed ? COLLAPSED_ACTIONS_WIDTH : actionsWidth) + 'px',
+          overflow: actionsCollapsed ? 'visible' : 'hidden',
+        }"
+      >
         <KBActionPanel
           :kb-id="kbId"
           :generating="kbGenerating"
@@ -125,6 +148,7 @@ import { useNewsStore } from '@/stores'
 import type { StyleType } from '@/types'
 import { getKbIcon } from '@/types'
 import { ElMessage } from 'element-plus'
+import type { InputInstance } from 'element-plus'
 import { Edit } from '@element-plus/icons-vue'
 
 const props = defineProps<{ kbId: string }>()
@@ -185,8 +209,8 @@ const editingTitle = ref(false)
 const editingDesc = ref(false)
 const editName = ref('')
 const editDesc = ref('')
-const titleInputRef = ref<InstanceType<typeof ElInput> | null>(null)
-const descInputRef = ref<InstanceType<typeof ElInput> | null>(null)
+const titleInputRef = ref<InputInstance | null>(null)
+const descInputRef = ref<InputInstance | null>(null)
 
 function startEditTitle() {
   editName.value = store.currentKB?.name || ''
@@ -269,7 +293,7 @@ async function ensureConv() {
     return
   }
   const conv = await store.createConv()
-  store.currentConvId = conv.conv_id
+  store.currentConvId = conv?.conv_id || ''
 }
 
 async function initKB(kbId: string) {
@@ -288,11 +312,14 @@ onMounted(() => {
   initKB(props.kbId)
 })
 
-watch(() => props.kbId, (newId) => {
-  if (newId) {
-    initKB(newId)
+watch(
+  () => props.kbId,
+  newId => {
+    if (newId) {
+      initKB(newId)
+    }
   }
-})
+)
 </script>
 
 <style scoped>
@@ -407,7 +434,7 @@ watch(() => props.kbId, (newId) => {
   color: #94a3b8;
   transition: all 0.2s;
   z-index: 10;
-  box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
 }
 
 .expand-sidebar-btn:hover {
@@ -441,7 +468,9 @@ watch(() => props.kbId, (newId) => {
 
 .slide-enter-active,
 .slide-leave-active {
-  transition: width 0.25s ease, opacity 0.2s ease;
+  transition:
+    width 0.25s ease,
+    opacity 0.2s ease;
 }
 
 .slide-enter-from,

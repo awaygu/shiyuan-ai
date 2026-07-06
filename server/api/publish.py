@@ -8,9 +8,10 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from publishers import BrowserPublisher, DouyinPublisher, WechatMpPublisher, XiaohongshuPublisher
+from publishers.wechat_mp import WECHAT_IP_WHITELIST_ERROR, WechatApiError
+
 from . import deps
-from publishers import WechatMpPublisher, XiaohongshuPublisher, DouyinPublisher, BrowserPublisher
-from publishers.wechat_mp import WechatApiError, WECHAT_IP_WHITELIST_ERROR
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,7 @@ async def publish_article(req: PublishRequest):
 async def _safe_run_publish_task(*args, **kwargs):
     """Wrap _run_publish_task to catch initialization/setup errors."""
     from .tasks import task_manager
+
     task = kwargs.get("task") or args[0]
     try:
         await _run_publish_task(*args, **kwargs)
@@ -130,7 +132,8 @@ async def _run_publish_task(
 
     try:
         result = await publisher.publish(
-            title, content,
+            title,
+            content,
             generate_cover=generate_cover,
             generate_inline_images=generate_inline_images,
             on_progress=on_progress,
@@ -138,6 +141,7 @@ async def _run_publish_task(
     except Exception as e:
         logger.error("Publish error for %s: %s", task.platform, e)
         from publishers.base import PublishResult
+
         result = PublishResult(
             success=False,
             platform=task.platform,
@@ -162,13 +166,15 @@ async def _run_publish_task(
 
     if result.success:
         await task_manager.update_task(
-            task.task_id, "completed",
+            task.task_id,
+            "completed",
             result.error_message or "发布成功",
             result=record,
         )
     else:
         await task_manager.update_task(
-            task.task_id, "failed",
+            task.task_id,
+            "failed",
             result.error_message or "发布失败",
             result=record,
             error=result.error_message,
@@ -199,7 +205,7 @@ async def login_platform(platform: str):
     if not success:
         if isinstance(publisher, WechatMpPublisher):
             if isinstance(login_exc, WechatApiError) and login_exc.errcode == WECHAT_IP_WHITELIST_ERROR:
-                error_message = f"服务器IP不在微信白名单，请在微信公众平台 → 开发 → 基本配置中添加IP白名单"
+                error_message = "服务器IP不在微信白名单，请在微信公众平台 → 开发 → 基本配置中添加IP白名单"
             elif not publisher.app_id or not publisher.app_secret:
                 error_message = error_message or "未配置 WECHAT_APP_ID 或 WECHAT_APP_SECRET，请在 .env 中设置"
             else:

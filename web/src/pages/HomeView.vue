@@ -34,30 +34,42 @@
         </div>
         <div class="kb-card-actions">
           <span class="kb-time">{{ formatTime(kb.created_at) }}</span>
-          <el-button
-            text
-            size="small"
-            class="kb-del-btn"
-            @click.stop="onDelete(kb.kb_id, kb.name)"
-          >
+          <el-button text size="small" class="kb-del-btn" @click.stop="onDelete(kb.kb_id, kb.name)">
             <el-icon><Delete /></el-icon>
           </el-button>
         </div>
       </div>
     </div>
 
-    <el-dialog v-model="showCreateDialog" title="新建知识库" width="420px" :close-on-click-modal="false">
+    <el-dialog
+      v-model="showCreateDialog"
+      title="新建知识库"
+      width="420px"
+      :close-on-click-modal="false"
+    >
       <el-form label-position="top">
         <el-form-item label="名称">
           <el-input v-model="newKBName" placeholder="请输入知识库名称" maxlength="50" />
         </el-form-item>
         <el-form-item label="描述（选填）">
-          <el-input v-model="newKBDesc" type="textarea" :rows="3" placeholder="简短描述知识库用途" maxlength="200" />
+          <el-input
+            v-model="newKBDesc"
+            type="textarea"
+            :rows="3"
+            placeholder="简短描述知识库用途"
+            maxlength="200"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" :disabled="!newKBName.trim()" :loading="creating" @click="onCreate">创建</el-button>
+        <el-button
+          type="primary"
+          :disabled="!newKBName.trim()"
+          :loading="creating"
+          @click="onCreate"
+          >创建</el-button
+        >
       </template>
     </el-dialog>
   </div>

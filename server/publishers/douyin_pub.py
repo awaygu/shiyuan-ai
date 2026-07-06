@@ -9,9 +9,10 @@ import shutil
 import uuid
 from pathlib import Path
 
-from .base import BrowserPublisher, PublishResult, NeedLoginError, random_delay
-from .image_archive import archive_key, try_read_archive, write_archive
 from config import PUBLISH_MANUAL_TIMEOUT, UPLOAD_DIR
+
+from .base import BrowserPublisher, NeedLoginError, PublishResult, random_delay
+from .image_archive import archive_key, try_read_archive, write_archive
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,9 @@ POST_IMAGE_URL_PATTERN = "/content/post/image"
 MANAGE_URL_PATTERN = "/content/manage"
 
 
+DEBUG_SCREENSHOTS_DIR = Path(__file__).resolve().parent.parent / "debug_screenshots"
+
+
 class DouyinPublisher(BrowserPublisher):
     login_url = "https://creator.douyin.com"
     login_check_url = "https://creator.douyin.com/creator-micro/home"
@@ -42,22 +46,17 @@ class DouyinPublisher(BrowserPublisher):
         if "login" in current_url.lower():
             return False
         try:
-            avatar = await page.query_selector(
-                "[class*='avatar'], [class*='user-info'], [class*='header-user']"
-            )
+            avatar = await page.query_selector("[class*='avatar'], [class*='user-info'], [class*='header-user']")
             if avatar:
                 return True
         except Exception:
             pass
-        if "creator.douyin.com" in current_url and "login" not in current_url.lower():
-            return True
-        return False
+        return "creator.douyin.com" in current_url and "login" not in current_url.lower()
 
     async def _shot(self, page, name: str) -> None:
-        debug_dir = Path(__file__).resolve().parent.parent / "debug_screenshots"
-        debug_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(DEBUG_SCREENSHOTS_DIR.mkdir, parents=True, exist_ok=True)
         try:
-            await page.screenshot(path=str(debug_dir / name), full_page=True)
+            await page.screenshot(path=str(DEBUG_SCREENSHOTS_DIR / name), full_page=True)
             logger.info("Douyin screenshot: %s", name)
         except Exception as e:
             logger.warning("Douyin screenshot failed: %s", e)
@@ -72,9 +71,7 @@ class DouyinPublisher(BrowserPublisher):
         # 如果在首页，尝试点击「发布作品」按钮
         if "creator.douyin.com" in current.lower() and "login" not in current.lower():
             try:
-                btn = await page.query_selector(
-                    "a[href*='upload'], button:has-text('发布'), [class*='publish']"
-                )
+                btn = await page.query_selector("a[href*='upload'], button:has-text('发布'), [class*='publish']")
                 if btn:
                     await btn.click()
                     await page.wait_for_load_state("networkidle", timeout=10000)
@@ -159,8 +156,12 @@ class DouyinPublisher(BrowserPublisher):
         return False
 
     async def _generate_images(
-        self, gen, title: str, content: str,
-        generate_cover: bool, generate_inline: bool,
+        self,
+        gen,
+        title: str,
+        content: str,
+        generate_cover: bool,
+        generate_inline: bool,
         tmp_dir: Path,
     ) -> list[Path]:
         """生成封面 + 正文图，带存档复用，返回路径列表。"""
@@ -242,8 +243,7 @@ class DouyinPublisher(BrowserPublisher):
         # 方案2：兜底 — 点击上传按钮触发文件选择器
         try:
             trigger = page.locator(
-                "button:has-text('上传'), [class*='upload-image'], "
-                "[class*='add-image'], [class*='container-drag']"
+                "button:has-text('上传'), [class*='upload-image'], [class*='add-image'], [class*='container-drag']"
             ).first
             await trigger.wait_for(timeout=8000)
             async with page.expect_file_chooser(timeout=15000) as fc_info:
@@ -295,8 +295,7 @@ class DouyinPublisher(BrowserPublisher):
         """等待标题输入框出现（用于用户手动上传图片的场景）。"""
         try:
             await page.wait_for_selector(
-                "input[placeholder*='标题'], input.semi-input, "
-                "input[placeholder*='作品标题']",
+                "input[placeholder*='标题'], input.semi-input, input[placeholder*='作品标题']",
                 timeout=timeout * 1000,
             )
             return True
@@ -426,15 +425,22 @@ class DouyinPublisher(BrowserPublisher):
         tmp_dir: Path | None = None
         images_uploaded = False
         try:
-            from config import IMAGE_GEN_ENABLED, DASHSCOPE_API_KEY, IMAGE_GEN_MODEL
+            from config import DASHSCOPE_API_KEY, IMAGE_GEN_ENABLED, IMAGE_GEN_MODEL
+
             if IMAGE_GEN_ENABLED and DASHSCOPE_API_KEY:
                 from core.image_generator import ImageGenerator
+
                 gen = ImageGenerator(DASHSCOPE_API_KEY, IMAGE_GEN_MODEL)
 
                 tmp_dir = TMP_IMG_DIR / uuid.uuid4().hex[:12]
                 tmp_dir.mkdir(parents=True, exist_ok=True)
                 image_paths = await self._generate_images(
-                    gen, title, content, generate_cover, generate_inline, tmp_dir,
+                    gen,
+                    title,
+                    content,
+                    generate_cover,
+                    generate_inline,
+                    tmp_dir,
                 )
                 if image_paths:
                     await self._progress(f"正在上传 {len(image_paths)} 张图片到抖音...")
@@ -498,9 +504,7 @@ class DouyinPublisher(BrowserPublisher):
                 published = True
                 break
             try:
-                toast = await page.query_selector(
-                    "[class*='success'], .toast, .notification"
-                )
+                toast = await page.query_selector("[class*='success'], .toast, .notification")
                 if toast:
                     text = await toast.text_content()
                     if text and "成功" in text:

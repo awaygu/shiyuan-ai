@@ -6,13 +6,9 @@ Lazy-built from DB on first use.  Chinese text is tokenised with jieba.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import string
-from pathlib import Path
 from typing import Any
-
-from config import UPLOAD_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +24,12 @@ def _tokenize(text: str) -> list[str]:
 
     tokens = list(jieba.cut(text.strip(), cut_all=False))
     return [
-        t for t in tokens
-        if len(t) > 1                               # 过滤单字（中文单字区分度低）
-        and not t.isdigit()                         # 过滤纯数字
+        t
+        for t in tokens
+        if len(t) > 1  # 过滤单字（中文单字区分度低）
+        and not t.isdigit()  # 过滤纯数字
         and not all(c in string.punctuation for c in t)  # 过滤纯标点
-        and t not in _STOPWORDS                     # 过滤停用词
+        and t not in _STOPWORDS  # 过滤停用词
     ]
 
 
@@ -98,9 +95,7 @@ class BM25Index:
             )
             return True
 
-    async def search(
-        self, query: str, top_k: int = 20, doc_ids: list[str] | None = None
-    ) -> list[tuple[str, float]]:
+    async def search(self, query: str, top_k: int = 20, doc_ids: list[str] | None = None) -> list[tuple[str, float]]:
         """BM25 keyword search.  Returns (chunk_id, score) sorted by score desc."""
         if not await self._ensure_built():
             return []
@@ -116,18 +111,12 @@ class BM25Index:
 
         # 如果指定了 doc_ids，过滤掉不属于这些文档的 chunk
         if doc_ids is not None and len(doc_ids) > 0:
-            valid_indices = [
-                i for i, cid in enumerate(self._chunk_ids)
-                if self._chunk_doc_map.get(cid) in doc_ids
-            ]
+            valid_indices = [i for i, cid in enumerate(self._chunk_ids) if self._chunk_doc_map.get(cid) in doc_ids]
             if not valid_indices:
                 return []
             filtered = [(self._chunk_ids[i], float(scores[i])) for i in valid_indices]
         else:
-            filtered = [
-                (cid, float(scores[i]))
-                for i, cid in enumerate(self._chunk_ids)
-            ]
+            filtered = [(cid, float(scores[i])) for i, cid in enumerate(self._chunk_ids)]
 
         filtered.sort(key=lambda x: x[1], reverse=True)
         return filtered[:top_k]

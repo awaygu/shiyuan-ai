@@ -289,13 +289,15 @@ async def load_articles() -> list[dict[str, Any]]:
     rows = await cursor.fetchall()
     result = []
     for row in rows:
-        result.append({
-            "article_id": row["article_id"],
-            "title": row["title"],
-            "content": row["content"],
-            "style": row["style"],
-            "news_ids": json.loads(row["news_ids"]) if row["news_ids"] else [],
-        })
+        result.append(
+            {
+                "article_id": row["article_id"],
+                "title": row["title"],
+                "content": row["content"],
+                "style": row["style"],
+                "news_ids": json.loads(row["news_ids"]) if row["news_ids"] else [],
+            }
+        )
     return result
 
 
@@ -325,18 +327,21 @@ async def load_publish_log() -> list[dict[str, Any]]:
     rows = await cursor.fetchall()
     result = []
     for row in rows:
-        result.append({
-            "article_id": row["article_id"],
-            "platform": row["platform"],
-            "success": bool(row["success"]),
-            "url": row["url"],
-            "timestamp": row["timestamp"],
-            "extra": json.loads(row["extra"]) if row["extra"] else {},
-        })
+        result.append(
+            {
+                "article_id": row["article_id"],
+                "platform": row["platform"],
+                "success": bool(row["success"]),
+                "url": row["url"],
+                "timestamp": row["timestamp"],
+                "extra": json.loads(row["extra"]) if row["extra"] else {},
+            }
+        )
     return result
 
 
 # ── Knowledge Base ─────────────────────────────────────────────
+
 
 async def save_kb_doc(doc: dict[str, Any]) -> None:
     db = await get_db()
@@ -382,15 +387,15 @@ async def load_kb_docs(kb_id: str = "") -> list[dict[str, Any]]:
     return [
         {
             "doc_id": row["doc_id"],
-            "kb_id": row["kb_id"] if "kb_id" in row.keys() else "",
+            "kb_id": row["kb_id"] if "kb_id" in row else "",
             "filename": row["filename"],
             "file_type": row["file_type"],
             "chunk_count": row["chunk_count"],
             "file_size": row["file_size"],
             "upload_time": row["upload_time"],
             "status": row["status"],
-            "summary": row["summary"] if "summary" in row.keys() else "",
-            "source_url": row["source_url"] if "source_url" in row.keys() else "",
+            "summary": row["summary"] if "summary" in row else "",
+            "source_url": row["source_url"] if "source_url" in row else "",
         }
         for row in rows
     ]
@@ -398,9 +403,7 @@ async def load_kb_docs(kb_id: str = "") -> list[dict[str, Any]]:
 
 async def delete_kb_doc(doc_id: str) -> list[str]:
     db = await get_db()
-    cursor = await db.execute(
-        "SELECT chunk_id FROM kb_chunks WHERE doc_id = ?", (doc_id,)
-    )
+    cursor = await db.execute("SELECT chunk_id FROM kb_chunks WHERE doc_id = ?", (doc_id,))
     rows = await cursor.fetchall()
     chunk_ids = [row["chunk_id"] for row in rows]
     await db.execute("DELETE FROM kb_chunks WHERE doc_id = ?", (doc_id,))
@@ -482,6 +485,7 @@ async def load_kb_all_chunks(kb_id: str) -> list[dict[str, Any]]:
 
 # ── Knowledge Bases ────────────────────────────────────────────
 
+
 async def create_kb(kb: dict[str, Any]) -> None:
     db = await get_db()
     await db.execute(
@@ -540,12 +544,18 @@ async def update_kb(kb_id: str, name: str | None = None, description: str | None
 
 async def delete_kb(kb_id: str) -> list[str]:
     db = await get_db()
-    await db.execute("DELETE FROM kb_messages WHERE conv_id IN (SELECT conv_id FROM kb_conversations WHERE kb_id = ?)", (kb_id,))
+    await db.execute(
+        "DELETE FROM kb_messages WHERE conv_id IN (SELECT conv_id FROM kb_conversations WHERE kb_id = ?)", (kb_id,)
+    )
     await db.execute("DELETE FROM kb_conversations WHERE kb_id = ?", (kb_id,))
-    cursor = await db.execute("SELECT chunk_id FROM kb_chunks WHERE doc_id IN (SELECT doc_id FROM kb_documents WHERE kb_id = ?)", (kb_id,))
+    cursor = await db.execute(
+        "SELECT chunk_id FROM kb_chunks WHERE doc_id IN (SELECT doc_id FROM kb_documents WHERE kb_id = ?)", (kb_id,)
+    )
     rows = await cursor.fetchall()
     chunk_ids = [row["chunk_id"] for row in rows]
-    await db.execute("DELETE FROM kb_chunks WHERE doc_id IN (SELECT doc_id FROM kb_documents WHERE kb_id = ?)", (kb_id,))
+    await db.execute(
+        "DELETE FROM kb_chunks WHERE doc_id IN (SELECT doc_id FROM kb_documents WHERE kb_id = ?)", (kb_id,)
+    )
     await db.execute("DELETE FROM kb_documents WHERE kb_id = ?", (kb_id,))
     await db.execute("DELETE FROM knowledge_bases WHERE kb_id = ?", (kb_id,))
     await db.commit()
@@ -553,6 +563,7 @@ async def delete_kb(kb_id: str) -> list[str]:
 
 
 # ── KB Conversations ──────────────────────────────────────────
+
 
 async def create_conversation(conv: dict[str, Any]) -> None:
     db = await get_db()

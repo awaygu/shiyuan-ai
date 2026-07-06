@@ -9,7 +9,8 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from config import SCHEDULE_MIN_INTERVAL, SCHEDULE_ENABLED
+from config import SCHEDULE_ENABLED, SCHEDULE_MIN_INTERVAL
+
 from . import deps
 
 logger = logging.getLogger(__name__)

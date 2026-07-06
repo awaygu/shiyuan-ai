@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api", tags=["news"])
 async def _bg_crawl_and_save(source: str, crawler) -> None:
     try:
         items = await asyncio.wait_for(crawler.crawl(), timeout=15.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("[refresh] %s: crawl timed out after 15s", source)
         return
     except Exception as e:
@@ -28,10 +28,7 @@ async def _bg_crawl_and_save(source: str, crawler) -> None:
         new_items = []
         for item in filtered:
             item_dict = item.to_dict()
-            existing = any(
-                n["news_id"] == item_dict["news_id"]
-                for n in deps.news_store
-            )
+            existing = any(n["news_id"] == item_dict["news_id"] for n in deps.news_store)
             if not existing:
                 deps.news_store.append(item_dict)
                 new_items.append(item_dict)
@@ -145,6 +142,7 @@ async def refresh_news_source(source: str):
     elif any(feed.id == source for feed in deps.DEFAULT_RSS_FEEDS):
         feed = next(f for f in deps.DEFAULT_RSS_FEEDS if f.id == source)
         from sources.rss import RSSCrawler
+
         crawler = RSSCrawler(feed)
     else:
         raise HTTPException(400, f"Unknown source: {source}")
@@ -172,12 +170,7 @@ async def get_sources():
 
 @router.get("/newsnow/platforms")
 async def get_newsnow_platforms():
-    return {
-        "platforms": {
-            pid: deps.PLATFORM_CONFIG[pid]["name"]
-            for pid in deps.NEWSNOW_CRAWLERS
-        }
-    }
+    return {"platforms": {pid: deps.PLATFORM_CONFIG[pid]["name"] for pid in deps.NEWSNOW_CRAWLERS}}
 
 
 @router.post("/newsnow/refresh")
@@ -196,10 +189,7 @@ async def refresh_newsnow():
         new_items = []
         for item in filtered:
             item_dict = item.to_dict()
-            existing = any(
-                n["news_id"] == item_dict["news_id"]
-                for n in deps.news_store
-            )
+            existing = any(n["news_id"] == item_dict["news_id"] for n in deps.news_store)
             if not existing:
                 deps.news_store.append(item_dict)
                 new_items.append(item_dict)
@@ -218,11 +208,7 @@ async def refresh_newsnow():
 @router.post("/newsnow/refresh/{platform_id}")
 async def refresh_newsnow_platform(platform_id: str):
     if platform_id not in deps.NEWSNOW_CRAWLERS:
-        raise HTTPException(
-            400,
-            f"Unknown platform: {platform_id}. "
-            f"Available: {list(deps.NEWSNOW_CRAWLERS.keys())}"
-        )
+        raise HTTPException(400, f"Unknown platform: {platform_id}. Available: {list(deps.NEWSNOW_CRAWLERS.keys())}")
 
     crawler = deps.NEWSNOW_CRAWLERS[platform_id]
     asyncio.create_task(_bg_crawl_and_save(platform_id, crawler))
@@ -255,10 +241,7 @@ async def refresh_rss():
         new_items = []
         for item in filtered:
             item_dict = item.to_dict()
-            existing = any(
-                n["news_id"] == item_dict["news_id"]
-                for n in deps.news_store
-            )
+            existing = any(n["news_id"] == item_dict["news_id"] for n in deps.news_store)
             if not existing:
                 deps.news_store.append(item_dict)
                 new_items.append(item_dict)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import importlib
 import logging
-from enum import Enum
+from enum import StrEnum
 
 import prompts as _prompts_module
 from config import MAX_PROMPT_CHARS
@@ -16,7 +16,7 @@ from config import MAX_PROMPT_CHARS
 logger = logging.getLogger(__name__)
 
 
-class StyleType(str, Enum):
+class StyleType(StrEnum):
     XIAOHONGSHU = "xiaohongshu"
     WECHAT_MP = "wechat_mp"
     DOUYIN = "douyin"
@@ -39,9 +39,7 @@ class PromptManager:
 
         self._interpret_system = _prompts_module.SYSTEM_INTERPRET
         self._generate_systems = {
-            StyleType(k): v
-            for k, v in _prompts_module.SYSTEM_GENERATE.items()
-            if k in [e.value for e in StyleType]
+            StyleType(k): v for k, v in _prompts_module.SYSTEM_GENERATE.items() if k in [e.value for e in StyleType]
         }
         self._chat_system = _prompts_module.SYSTEM_CHAT
 
@@ -73,7 +71,9 @@ class PromptManager:
         if max_len and len(result) > max_len:
             logger.warning(
                 "Prompt for task=%s exceeds recommended length: %d > %d chars",
-                task, len(result), max_len,
+                task,
+                len(result),
+                max_len,
             )
         return result
 

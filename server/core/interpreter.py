@@ -14,6 +14,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, TEMPERATURE_ANALYZE
+
 from .style_manager import StyleType, prompt_manager
 
 MOCK_RESPONSES: dict[StyleType, str] = {
@@ -65,10 +66,7 @@ MOCK_RESPONSES: dict[StyleType, str] = {
 
 
 def _news_text(news_list: list[dict]) -> str:
-    return "\n\n".join(
-        f"标题：{n.get('title', '')}\n内容：{n.get('content', '')}"
-        for n in news_list
-    )
+    return "\n\n".join(f"标题：{n.get('title', '')}\n内容：{n.get('content', '')}" for n in news_list)
 
 
 class NewsInterpreter:
@@ -104,7 +102,8 @@ class NewsInterpreter:
         news = _news_text(news_list)
         if task == "generate" and prompt:
             return self.pm.generate_with_user_prompt_template.format(
-                user_prompt=prompt, news_text=news,
+                user_prompt=prompt,
+                news_text=news,
             )
         return self.pm.get_news_task_human().format(news_text=news)
 
@@ -138,10 +137,12 @@ class NewsInterpreter:
         task = "generate" if prompt else "interpret"
         system = self.pm.get_system_prompt(task, style)
         human = self._build_human_message(task, news_list, style, prompt)
-        prompt_text = ChatPromptTemplate.from_messages([
-            ("system", system),
-            ("human", human),
-        ])
+        prompt_text = ChatPromptTemplate.from_messages(
+            [
+                ("system", system),
+                ("human", human),
+            ]
+        )
         chain = prompt_text | self.llm
         result = await chain.ainvoke({})
         return result.content
@@ -169,10 +170,12 @@ class NewsInterpreter:
         system = self.pm.get_system_prompt("chat")
         news = _news_text(news_list)
         human = self.pm.chat_template.format(message=message, news_text=news)
-        prompt_text = ChatPromptTemplate.from_messages([
-            ("system", system),
-            ("human", human),
-        ])
+        prompt_text = ChatPromptTemplate.from_messages(
+            [
+                ("system", system),
+                ("human", human),
+            ]
+        )
         chain = prompt_text | self.llm
         result = await chain.ainvoke({})
         return result.content
@@ -214,16 +217,18 @@ class NewsInterpreter:
             full = MOCK_RESPONSES.get(style, MOCK_RESPONSES[StyleType.WECHAT_MP])
             chunk_size = 4
             for i in range(0, len(full), chunk_size):
-                yield full[i:i + chunk_size]
+                yield full[i : i + chunk_size]
                 await asyncio.sleep(0.02)
             return
 
         system = self.pm.get_system_prompt(task, style)
         human = self._build_human_message(task, news_list, style, prompt)
-        prompt_text = ChatPromptTemplate.from_messages([
-            ("system", system),
-            ("human", human),
-        ])
+        prompt_text = ChatPromptTemplate.from_messages(
+            [
+                ("system", system),
+                ("human", human),
+            ]
+        )
         chain = prompt_text | self.llm
         async for chunk in chain.astream({}):
             if chunk.content:
@@ -250,17 +255,19 @@ class NewsInterpreter:
             )
             chunk_size = 4
             for i in range(0, len(full), chunk_size):
-                yield full[i:i + chunk_size]
+                yield full[i : i + chunk_size]
                 await asyncio.sleep(0.02)
             return
 
         system = self.pm.get_system_prompt("chat")
         news = _news_text(news_list)
         human = self.pm.chat_template.format(message=message, news_text=news)
-        prompt_text = ChatPromptTemplate.from_messages([
-            ("system", system),
-            ("human", human),
-        ])
+        prompt_text = ChatPromptTemplate.from_messages(
+            [
+                ("system", system),
+                ("human", human),
+            ]
+        )
         chain = prompt_text | self.llm
         async for chunk in chain.astream({}):
             if chunk.content:

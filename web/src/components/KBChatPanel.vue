@@ -16,22 +16,41 @@
       </el-popconfirm>
     </div>
     <div class="chat-body" ref="messagesRef">
-      <div
-        v-for="(msg, i) in messages"
-        :key="i"
-        class="msg-row"
-        :class="msg.role"
-      >
+      <div v-for="(msg, i) in messages" :key="i" class="msg-row" :class="msg.role">
         <div class="msg-avatar">
           <div v-if="msg.role === 'assistant'" class="avatar-ai">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 2L2 7L12 12L22 7L12 2Z"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M2 17L12 22L22 17"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M2 12L12 17L22 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
           </div>
           <div v-else class="avatar-user">我</div>
         </div>
         <div class="msg-content">
           <div class="msg-bubble" v-html="renderMsgHtml(msg)"></div>
           <div
-            v-if="msg.role === 'assistant' && !msg.streaming && msg.content && msg.type === 'article'"
+            v-if="
+              msg.role === 'assistant' && !msg.streaming && msg.content && msg.type === 'article'
+            "
             class="msg-actions"
           >
             <button class="msg-action-btn" @click="copyContent(msg.content)">复制</button>
@@ -57,7 +76,9 @@
             :key="q"
             class="suggestion-btn"
             @click="onClickSuggestion(q)"
-          >{{ q }}</button>
+          >
+            {{ q }}
+          </button>
         </div>
       </div>
     </div>
@@ -75,7 +96,13 @@
         />
         <button class="send-btn" :disabled="!chatMessage.trim() || generating" @click="sendChat">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M5 12H19M19 12L13 6M19 12L13 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path
+              d="M5 12H19M19 12L13 6M19 12L13 18"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </button>
       </div>
@@ -93,7 +120,11 @@
       <div
         v-if="citeTooltip.visible"
         class="cite-tooltip"
-        :style="{ left: citeTooltip.x + 'px', top: citeTooltip.y + 'px', width: CITE_TIP_WIDTH + 'px' }"
+        :style="{
+          left: citeTooltip.x + 'px',
+          top: citeTooltip.y + 'px',
+          width: CITE_TIP_WIDTH + 'px',
+        }"
         @mouseenter="cancelHideCite"
         @mouseleave="scheduleHideCite"
       >
@@ -119,7 +150,8 @@ import { renderSafeMarkdown } from '@/utils/markdown'
 const props = defineProps<{ kbId: string }>()
 const emit = defineEmits<{ 'clear-conv': []; 'generating-change': [value: boolean] }>()
 const store = useNewsStore()
-const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } = useWechatPublish()
+const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } =
+  useWechatPublish()
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -130,7 +162,11 @@ interface ChatMessage {
 }
 
 const messages = ref<ChatMessage[]>([
-  { role: 'assistant', content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。', type: 'chat' },
+  {
+    role: 'assistant',
+    content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。',
+    type: 'chat',
+  },
 ])
 
 const messagesRef = ref<HTMLElement | null>(null)
@@ -139,9 +175,15 @@ const generating = ref(false)
 const suggestions = ref<string[]>([])
 const loadingSuggestions = ref(false)
 
-watch(generating, (val) => emit('generating-change', val))
+watch(generating, val => emit('generating-change', val))
 
-watch(() => props.kbId, () => { loadSuggestions() }, { immediate: true })
+watch(
+  () => props.kbId,
+  () => {
+    loadSuggestions()
+  },
+  { immediate: true }
+)
 
 onMounted(() => {
   window.addEventListener('mouseover', onOverBody)
@@ -171,7 +213,11 @@ function injectCitations(html: string, sources: KBSource[] | undefined): string 
 }
 
 function escapeAttr(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }
 
 function renderMsgHtml(msg: ChatMessage): string {
@@ -192,16 +238,25 @@ function renderMsgHtml(msg: ChatMessage): string {
 
 // 脚注 tooltip 事件委托 — 锚定到引用编号，悬浮显示，可在 tooltip 上悬停查看长内容
 const citeTooltip = ref<{ visible: boolean; x: number; y: number; tip: string; text: string }>({
-  visible: false, x: 0, y: 0, tip: '', text: '',
+  visible: false,
+  x: 0,
+  y: 0,
+  tip: '',
+  text: '',
 })
 
 let _citeHideTimer: number | null = null
 function scheduleHideCite() {
   if (_citeHideTimer) clearTimeout(_citeHideTimer)
-  _citeHideTimer = window.setTimeout(() => { citeTooltip.value.visible = false }, 220)
+  _citeHideTimer = window.setTimeout(() => {
+    citeTooltip.value.visible = false
+  }, 220)
 }
 function cancelHideCite() {
-  if (_citeHideTimer) { clearTimeout(_citeHideTimer); _citeHideTimer = null }
+  if (_citeHideTimer) {
+    clearTimeout(_citeHideTimer)
+    _citeHideTimer = null
+  }
 }
 
 const CITE_TIP_WIDTH = 480
@@ -305,39 +360,50 @@ async function sendChat() {
   const msgIdx = addAssistantMessage('chat')
   scrollToBottom()
 
-  kbStreamChat(props.kbId, msg, store.kbSelectedDocIds, {
-    onChunk(text) {
-      messages.value[msgIdx].content += text
-      scrollToBottom()
+  kbStreamChat(
+    props.kbId,
+    msg,
+    store.kbSelectedDocIds,
+    {
+      onChunk(text) {
+        messages.value[msgIdx].content += text
+        scrollToBottom()
+      },
+      onSources(sources: { filename: string; score: number }[]) {
+        messages.value[msgIdx].sources = sources as KBSource[]
+      },
+      onMeta(meta) {
+        if (meta.message_type) {
+          messages.value[msgIdx].type = meta.message_type
+        }
+      },
+      onLoading(message) {
+        messages.value[msgIdx].content = `${message}`
+        scrollToBottom()
+      },
+      onPrompt() {},
+      onDone() {
+        pushDone(msgIdx)
+      },
+      onError(err) {
+        pushError(msgIdx, `请求失败：${err}`)
+      },
     },
-    onSources(sources) {
-      messages.value[msgIdx].sources = sources
-    },
-    onMeta(meta) {
-      if (meta.message_type) {
-        messages.value[msgIdx].type = meta.message_type
-      }
-    },
-    onLoading(message) {
-      messages.value[msgIdx].content = `${message}`
-      scrollToBottom()
-    },
-    onPrompt() {},
-    onDone() {
-      pushDone(msgIdx)
-    },
-    onError(err) {
-      pushError(msgIdx, `请求失败：${err}`)
-    },
-  }, 5, false, store.currentConvId)
+    5,
+    false,
+    store.currentConvId
+  )
 }
 
 function copyContent(text: string) {
-  navigator.clipboard.writeText(text).then(() => {
-    ElMessage.success('已复制到剪贴板')
-  }).catch(() => {
-    ElMessage.error('复制失败')
-  })
+  navigator.clipboard
+    .writeText(text)
+    .then(() => {
+      ElMessage.success('已复制到剪贴板')
+    })
+    .catch(() => {
+      ElMessage.error('复制失败')
+    })
 }
 
 const platformLabels: Record<string, string> = {
@@ -359,7 +425,12 @@ async function onPublishCommand(content: string, platform: string) {
 
 async function onPublish(content: string, platform: string, imageOptions?: ImagePublishOptions) {
   const label = platformLabels[platform] || platform
-  const title = content.split('\n').find(l => l.trim() && !l.trim().startsWith('#'))?.trim()?.slice(0, 30) || '知识库文章'
+  const title =
+    content
+      .split('\n')
+      .find(l => l.trim() && !l.trim().startsWith('#'))
+      ?.trim()
+      ?.slice(0, 30) || '知识库文章'
 
   try {
     const res = await publishByContent(title, content, platform, imageOptions)
@@ -374,7 +445,11 @@ async function onPublish(content: string, platform: string, imageOptions?: Image
 
 function loadHistory(historyMessages: KBMessage[]) {
   messages.value = [
-    { role: 'assistant', content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。', type: 'chat' },
+    {
+      role: 'assistant',
+      content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。',
+      type: 'chat',
+    },
   ]
   for (const m of historyMessages) {
     messages.value.push({
@@ -389,7 +464,11 @@ function loadHistory(historyMessages: KBMessage[]) {
 
 function clearMessages() {
   messages.value = [
-    { role: 'assistant', content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。', type: 'chat' },
+    {
+      role: 'assistant',
+      content: '你好！我可以基于知识库内容回答问题。上传文档后，直接提问即可。',
+      type: 'chat',
+    },
   ]
 }
 
@@ -446,8 +525,14 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .msg-row.user {
@@ -504,10 +589,18 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
   word-break: break-word;
 }
 
-.msg-bubble :deep(p) { margin: 4px 0; }
-.msg-bubble :deep(p:first-child) { margin-top: 0; }
-.msg-bubble :deep(p:last-child) { margin-bottom: 0; }
-.msg-bubble :deep(strong) { font-weight: 600; }
+.msg-bubble :deep(p) {
+  margin: 4px 0;
+}
+.msg-bubble :deep(p:first-child) {
+  margin-top: 0;
+}
+.msg-bubble :deep(p:last-child) {
+  margin-bottom: 0;
+}
+.msg-bubble :deep(strong) {
+  font-weight: 600;
+}
 .msg-bubble :deep(ol),
 .msg-bubble :deep(ul) {
   margin: 6px 0;
@@ -525,10 +618,18 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
   font-weight: 600;
   color: #1e293b;
 }
-.msg-bubble :deep(h1) { font-size: 18px; }
-.msg-bubble :deep(h2) { font-size: 16px; }
-.msg-bubble :deep(h3) { font-size: 15px; }
-.msg-bubble :deep(h4) { font-size: 14px; }
+.msg-bubble :deep(h1) {
+  font-size: 18px;
+}
+.msg-bubble :deep(h2) {
+  font-size: 16px;
+}
+.msg-bubble :deep(h3) {
+  font-size: 15px;
+}
+.msg-bubble :deep(h4) {
+  font-size: 14px;
+}
 .msg-bubble :deep(hr) {
   border: none;
   border-top: 1px solid #eef0f5;
@@ -586,8 +687,14 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
 }
 
 @keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .suggestions-area {
@@ -663,7 +770,9 @@ defineExpose({ loadHistory, clearMessages, loadSuggestions })
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 6px 6px 6px 4px;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .input-area:focus-within {

@@ -3,58 +3,144 @@
   <div
     v-if="!expanded"
     class="agent-bubble"
-    :style="props.offsetRight ? { right: (48 + props.offsetRight) + 'px' } : {}"
+    :style="props.offsetRight ? { right: 48 + props.offsetRight + 'px' } : {}"
     @click="openPanel"
   >
     <div class="bubble-inner" @click="openPanel">
-      <svg width="28" height="28" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <svg
+        width="28"
+        height="28"
+        viewBox="0 0 48 48"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
         <defs>
-          <linearGradient id="techGrad1" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#7c3aed"/>
-            <stop offset="50%" stop-color="#8b5cf6"/>
-            <stop offset="100%" stop-color="#7c3aed"/>
+          <linearGradient
+            id="techGrad1"
+            x1="0"
+            y1="0"
+            x2="48"
+            y2="48"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0%" stop-color="#7c3aed" />
+            <stop offset="50%" stop-color="#8b5cf6" />
+            <stop offset="100%" stop-color="#7c3aed" />
           </linearGradient>
-          <linearGradient id="techGrad2" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#38bdf8"/>
-            <stop offset="100%" stop-color="#a78bfa"/>
+          <linearGradient
+            id="techGrad2"
+            x1="0"
+            y1="0"
+            x2="48"
+            y2="48"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0%" stop-color="#38bdf8" />
+            <stop offset="100%" stop-color="#a78bfa" />
           </linearGradient>
           <radialGradient id="coreGlow" cx="24" cy="24" r="9" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.95"/>
-            <stop offset="50%" stop-color="#8b5cf6" stop-opacity="0.45"/>
-            <stop offset="100%" stop-color="#c4b5fd" stop-opacity="0"/>
+            <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.95" />
+            <stop offset="50%" stop-color="#8b5cf6" stop-opacity="0.45" />
+            <stop offset="100%" stop-color="#c4b5fd" stop-opacity="0" />
           </radialGradient>
         </defs>
-        <path d="M24 4 L42 14 L42 34 L24 44 L6 34 L6 14 Z" stroke="url(#techGrad1)" stroke-width="1.5" fill="none" opacity="0.55">
-          <animateTransform attributeName="transform" type="rotate" from="0 24 24" to="360 24 24" dur="14s" repeatCount="indefinite"/>
+        <path
+          d="M24 4 L42 14 L42 34 L24 44 L6 34 L6 14 Z"
+          stroke="url(#techGrad1)"
+          stroke-width="1.5"
+          fill="none"
+          opacity="0.55"
+        >
+          <animateTransform
+            attributeName="transform"
+            type="rotate"
+            from="0 24 24"
+            to="360 24 24"
+            dur="14s"
+            repeatCount="indefinite"
+          />
         </path>
-        <path d="M24 8 L38.5 16.5 L38.5 31.5 L24 40 L9.5 31.5 L9.5 16.5 Z" stroke="url(#techGrad2)" stroke-width="1" fill="none" opacity="0.4">
-          <animateTransform attributeName="transform" type="rotate" from="360 24 24" to="0 24 24" dur="11s" repeatCount="indefinite"/>
+        <path
+          d="M24 8 L38.5 16.5 L38.5 31.5 L24 40 L9.5 31.5 L9.5 16.5 Z"
+          stroke="url(#techGrad2)"
+          stroke-width="1"
+          fill="none"
+          opacity="0.4"
+        >
+          <animateTransform
+            attributeName="transform"
+            type="rotate"
+            from="360 24 24"
+            to="0 24 24"
+            dur="11s"
+            repeatCount="indefinite"
+          />
         </path>
         <circle cx="24" cy="24" r="9" fill="url(#coreGlow)">
-          <animate attributeName="r" values="9;10.5;9" dur="3s" repeatCount="indefinite"/>
+          <animate attributeName="r" values="9;10.5;9" dur="3s" repeatCount="indefinite" />
         </circle>
         <circle cx="24" cy="24" r="4.5" fill="#7c3aed" opacity="0.9">
-          <animate attributeName="opacity" values="0.9;0.6;0.9" dur="2.5s" repeatCount="indefinite"/>
+          <animate
+            attributeName="opacity"
+            values="0.9;0.6;0.9"
+            dur="2.5s"
+            repeatCount="indefinite"
+          />
         </circle>
-        <circle cx="24" cy="24" r="2" fill="#fff" opacity="0.95"/>
+        <circle cx="24" cy="24" r="2" fill="#fff" opacity="0.95" />
         <g stroke="url(#techGrad2)" stroke-width="0.9" opacity="0.55" stroke-linecap="round">
           <line x1="24" y1="15.5" x2="24" y2="12">
-            <animate attributeName="opacity" values="0.55;0.2;0.55" dur="3.5s" repeatCount="indefinite"/>
+            <animate
+              attributeName="opacity"
+              values="0.55;0.2;0.55"
+              dur="3.5s"
+              repeatCount="indefinite"
+            />
           </line>
           <line x1="31.5" y1="20" x2="34" y2="18">
-            <animate attributeName="opacity" values="0.2;0.55;0.2" dur="3.5s" begin="0.6s" repeatCount="indefinite"/>
+            <animate
+              attributeName="opacity"
+              values="0.2;0.55;0.2"
+              dur="3.5s"
+              begin="0.6s"
+              repeatCount="indefinite"
+            />
           </line>
           <line x1="31.5" y1="28" x2="34" y2="30">
-            <animate attributeName="opacity" values="0.55;0.2;0.55" dur="3.5s" begin="1.2s" repeatCount="indefinite"/>
+            <animate
+              attributeName="opacity"
+              values="0.55;0.2;0.55"
+              dur="3.5s"
+              begin="1.2s"
+              repeatCount="indefinite"
+            />
           </line>
           <line x1="24" y1="32.5" x2="24" y2="36">
-            <animate attributeName="opacity" values="0.2;0.55;0.2" dur="3.5s" begin="1.8s" repeatCount="indefinite"/>
+            <animate
+              attributeName="opacity"
+              values="0.2;0.55;0.2"
+              dur="3.5s"
+              begin="1.8s"
+              repeatCount="indefinite"
+            />
           </line>
           <line x1="16.5" y1="28" x2="14" y2="30">
-            <animate attributeName="opacity" values="0.55;0.2;0.55" dur="3.5s" begin="2.4s" repeatCount="indefinite"/>
+            <animate
+              attributeName="opacity"
+              values="0.55;0.2;0.55"
+              dur="3.5s"
+              begin="2.4s"
+              repeatCount="indefinite"
+            />
           </line>
           <line x1="16.5" y1="20" x2="14" y2="18">
-            <animate attributeName="opacity" values="0.2;0.55;0.2" dur="3.5s" begin="3s" repeatCount="indefinite"/>
+            <animate
+              attributeName="opacity"
+              values="0.2;0.55;0.2"
+              dur="3.5s"
+              begin="3s"
+              repeatCount="indefinite"
+            />
           </line>
         </g>
       </svg>
@@ -73,25 +159,44 @@
     <div class="panel-header" @mousedown="startDrag">
       <div class="header-left">
         <svg width="20" height="20" viewBox="0 0 48 48" fill="none">
-          <path d="M24 8 L38.5 16.5 L38.5 31.5 L24 40 L9.5 31.5 L9.5 16.5 Z" stroke="#a78bfa" stroke-width="1.5" fill="none" opacity="0.6"/>
-          <circle cx="24" cy="24" r="7" fill="#ede9fe" opacity="0.8"/>
-          <circle cx="24" cy="24" r="3" fill="#7c3aed" opacity="0.85"/>
+          <path
+            d="M24 8 L38.5 16.5 L38.5 31.5 L24 40 L9.5 31.5 L9.5 16.5 Z"
+            stroke="#a78bfa"
+            stroke-width="1.5"
+            fill="none"
+            opacity="0.6"
+          />
+          <circle cx="24" cy="24" r="7" fill="#ede9fe" opacity="0.8" />
+          <circle cx="24" cy="24" r="3" fill="#7c3aed" opacity="0.85" />
           <g stroke="#a78bfa" stroke-width="0.8" opacity="0.45" stroke-linecap="round">
-            <line x1="24" y1="17" x2="24" y2="14"/>
-            <line x1="30" y1="20.5" x2="33" y2="19"/>
-            <line x1="30" y1="27.5" x2="33" y2="29"/>
-            <line x1="24" y1="31" x2="24" y2="34"/>
-            <line x1="18" y1="27.5" x2="15" y2="29"/>
-            <line x1="18" y1="20.5" x2="15" y2="19"/>
+            <line x1="24" y1="17" x2="24" y2="14" />
+            <line x1="30" y1="20.5" x2="33" y2="19" />
+            <line x1="30" y1="27.5" x2="33" y2="29" />
+            <line x1="24" y1="31" x2="24" y2="34" />
+            <line x1="18" y1="27.5" x2="15" y2="29" />
+            <line x1="18" y1="20.5" x2="15" y2="19" />
           </g>
         </svg>
         <span>AI 助手</span>
       </div>
       <div class="header-actions">
         <span class="header-btn" title="历史会话" @mousedown.stop @click.stop="toggleConvList">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
         </span>
-        <span class="header-btn" title="新对话" @mousedown.stop @click.stop="startNewConversation">+</span>
+        <span class="header-btn" title="新对话" @mousedown.stop @click.stop="startNewConversation"
+          >+</span
+        >
         <span class="header-btn" @mousedown.stop @click.stop="closePanel">✕</span>
       </div>
     </div>
@@ -120,12 +225,7 @@
 
     <!-- Messages -->
     <div class="panel-body" ref="messagesRef">
-      <div
-        v-for="(msg, i) in messages"
-        :key="i"
-        class="msg-row"
-        :class="msg.role"
-      >
+      <div v-for="(msg, i) in messages" :key="i" class="msg-row" :class="msg.role">
         <div class="msg-avatar">
           <div v-if="msg.role === 'assistant'" class="avatar-ai">🤖</div>
           <div v-else class="avatar-user">我</div>
@@ -142,10 +242,7 @@
             <div class="msg-content" v-html="renderMsgHtml(msg)"></div>
           </div>
           <!-- Action buttons for completed results -->
-          <div
-            v-if="msg.role === 'assistant' && !msg.streaming && msg.content"
-            class="msg-actions"
-          >
+          <div v-if="msg.role === 'assistant' && !msg.streaming && msg.content" class="msg-actions">
             <button class="msg-action-btn" @click="copyContent(msg.content)">📋 复制</button>
             <el-dropdown trigger="click" @command="(p: string) => onPublishCommand(msg, p)">
               <button class="msg-action-btn">📤 发布到 ▾</button>
@@ -168,9 +265,12 @@
       <div class="toolbar">
         <div class="toolbar-left">
           <span v-if="store.currentDetailNews" class="ctx-tag">
-            {{ store.currentDetailNews.title?.slice(0, 16) }}{{ (store.currentDetailNews.title?.length || 0) > 16 ? '…' : '' }}
+            {{ store.currentDetailNews.title?.slice(0, 16)
+            }}{{ (store.currentDetailNews.title?.length || 0) > 16 ? '…' : '' }}
           </span>
-          <span v-if="store.selectedNewsIds.length > 0" class="ctx-tag">已选 {{ store.selectedNewsIds.length }} 条</span>
+          <span v-if="store.selectedNewsIds.length > 0" class="ctx-tag"
+            >已选 {{ store.selectedNewsIds.length }} 条</span
+          >
         </div>
         <div class="toolbar-right">
           <button v-if="isNewsPage" :disabled="generating" @click="fetchTrends">热点</button>
@@ -185,9 +285,18 @@
           :title="webSearchEnabled ? '联网搜索已开启' : '开启联网搜索'"
           @click="webSearchEnabled = !webSearchEnabled"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
         </button>
         <el-input
@@ -201,7 +310,13 @@
         />
         <button class="send-btn" :disabled="!chatMessage.trim() || generating" @click="sendChat">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-            <path d="M5 12H19M19 12L13 6M19 12L13 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path
+              d="M5 12H19M19 12L13 6M19 12L13 18"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </button>
       </div>
@@ -217,22 +332,19 @@
     />
 
     <!-- Snap preview zone -->
-    <div
-      v-if="isDragging && snapPreview"
-      class="snap-preview"
-    ></div>
+    <div v-if="isDragging && snapPreview" class="snap-preview"></div>
 
     <!-- Resize handles -->
     <template v-if="!dockedRight">
-      <div class="resize-handle resize-t" @mousedown.stop="(e) => startResize(e, 't')"></div>
-      <div class="resize-handle resize-tl" @mousedown.stop="(e) => startResize(e, 'tl')"></div>
-      <div class="resize-handle resize-tr" @mousedown.stop="(e) => startResize(e, 'tr')"></div>
-      <div class="resize-handle resize-r" @mousedown.stop="(e) => startResize(e, 'r')"></div>
-      <div class="resize-handle resize-b" @mousedown.stop="(e) => startResize(e, 'b')"></div>
-      <div class="resize-handle resize-bl" @mousedown.stop="(e) => startResize(e, 'bl')"></div>
-      <div class="resize-handle resize-br" @mousedown.stop="(e) => startResize(e, 'br')"></div>
+      <div class="resize-handle resize-t" @mousedown.stop="e => startResize(e, 't')"></div>
+      <div class="resize-handle resize-tl" @mousedown.stop="e => startResize(e, 'tl')"></div>
+      <div class="resize-handle resize-tr" @mousedown.stop="e => startResize(e, 'tr')"></div>
+      <div class="resize-handle resize-r" @mousedown.stop="e => startResize(e, 'r')"></div>
+      <div class="resize-handle resize-b" @mousedown.stop="e => startResize(e, 'b')"></div>
+      <div class="resize-handle resize-bl" @mousedown.stop="e => startResize(e, 'bl')"></div>
+      <div class="resize-handle resize-br" @mousedown.stop="e => startResize(e, 'br')"></div>
     </template>
-    <div class="resize-handle resize-l" @mousedown.stop="(e) => startResize(e, 'l')"></div>
+    <div class="resize-handle resize-l" @mousedown.stop="e => startResize(e, 'l')"></div>
   </div>
 </template>
 
@@ -241,7 +353,18 @@ import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
 import { useNewsStore } from '@/stores'
-import { streamAgentChat, publishArticle as apiPublishArticle, publishByContent, fetchTrends as apiFetchTrends, compareSources as apiCompareSources, searchNews as apiSearchNews, streamBriefing, listConversations, getConversationMessages, deleteConversation as apiDeleteConversation } from '@/api'
+import {
+  streamAgentChat,
+  publishArticle as apiPublishArticle,
+  publishByContent,
+  fetchTrends as apiFetchTrends,
+  compareSources as apiCompareSources,
+  searchNews as apiSearchNews,
+  streamBriefing,
+  listConversations,
+  getConversationMessages,
+  deleteConversation as apiDeleteConversation,
+} from '@/api'
 import type { AgentAction, Conversation } from '@/api'
 import type { ImagePublishOptions } from '@/composables/useWechatPublish'
 import { useWechatPublish } from '@/composables/useWechatPublish'
@@ -252,7 +375,8 @@ const props = withDefaults(defineProps<{ offsetRight?: number }>(), { offsetRigh
 const store = useNewsStore()
 const route = useRoute()
 const isNewsPage = computed(() => route.name === 'news')
-const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } = useWechatPublish()
+const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } =
+  useWechatPublish()
 
 const expanded = ref(false)
 const isDragging = ref(false)
@@ -299,7 +423,12 @@ interface ChatMessage {
 }
 
 const messages = ref<ChatMessage[]>([
-  { role: 'assistant', content: '你好！我可以和你聊天、解读新闻、搜索热点、生成文章，还能帮你执行网站操作。直接说就行！', type: 'chat' },
+  {
+    role: 'assistant',
+    content:
+      '你好！我可以和你聊天、解读新闻、搜索热点、生成文章，还能帮你执行网站操作。直接说就行！',
+    type: 'chat',
+  },
 ])
 
 const panelStyle = computed(() => {
@@ -410,9 +539,23 @@ async function doPublish(msg: ChatMessage, platform: string, imageOptions?: Imag
   }
   try {
     if (msg.articleId) {
-      await apiPublishArticle(msg.articleId, platform, imageOptions ? { generate_cover: imageOptions.generate_cover, generate_inline_images: imageOptions.generate_inline_images } : undefined)
+      await apiPublishArticle(
+        msg.articleId,
+        platform,
+        imageOptions
+          ? {
+              generate_cover: imageOptions.generate_cover,
+              generate_inline_images: imageOptions.generate_inline_images,
+            }
+          : undefined
+      )
     } else {
-      const title = msg.content.split('\n').find(l => l.trim() && !l.trim().startsWith('#'))?.trim()?.slice(0, 30) || 'AI 生成内容'
+      const title =
+        msg.content
+          .split('\n')
+          .find(l => l.trim() && !l.trim().startsWith('#'))
+          ?.trim()
+          ?.slice(0, 30) || 'AI 生成内容'
       await publishByContent(title, msg.content, platform, imageOptions)
     }
     store.startTaskStream()
@@ -427,11 +570,14 @@ async function doPublish(msg: ChatMessage, platform: string, imageOptions?: Imag
 // ── Copy ────────────────────────────────────────────────────
 
 function copyContent(text: string) {
-  navigator.clipboard.writeText(text).then(() => {
-    ElMessage.success('已复制到剪贴板')
-  }).catch(() => {
-    ElMessage.error('复制失败')
-  })
+  navigator.clipboard
+    .writeText(text)
+    .then(() => {
+      ElMessage.success('已复制到剪贴板')
+    })
+    .catch(() => {
+      ElMessage.error('复制失败')
+    })
 }
 
 // ── Smart: Trends ──────────────────────────────────────────
@@ -504,8 +650,8 @@ function openBriefing() {
 const CMD_PATTERNS: [RegExp, (match: RegExpMatchArray) => void][] = [
   [/^\/热点$/, () => fetchTrends()],
   [/^\/简报$/, () => openBriefing()],
-  [/^对比\s+(.+)/, (m) => doCompare(m[1].trim())],
-  [/^搜索\s+(.+)/, (m) => doSearch(m[1].trim())],
+  [/^对比\s+(.+)/, m => doCompare(m[1].trim())],
+  [/^搜索\s+(.+)/, m => doSearch(m[1].trim())],
 ]
 
 async function doCompare(keyword: string) {
@@ -566,7 +712,10 @@ async function handleAction(action: AgentAction) {
       ElMessage.success(`${src} 已刷新`)
     } else if (act === 'generate_article') {
       // 将 article_id 存储到最后一条 assistant 消息，以便发布
-      const lastAssistantIdx = [...messages.value].map((m, i) => ({ m, i })).filter(x => x.m.role === 'assistant').pop()?.i
+      const lastAssistantIdx = [...messages.value]
+        .map((m, i) => ({ m, i }))
+        .filter(x => x.m.role === 'assistant')
+        .pop()?.i
       if (lastAssistantIdx !== undefined && action.article_id) {
         messages.value[lastAssistantIdx].articleId = action.article_id
       }
@@ -585,7 +734,12 @@ function startNewConversation() {
   currentConversationId.value = null
   showConvList.value = false
   messages.value = [
-    { role: 'assistant', content: '你好！我可以和你聊天、解读新闻、搜索热点、生成文章，还能帮你执行网站操作。直接说就行！', type: 'chat' },
+    {
+      role: 'assistant',
+      content:
+        '你好！我可以和你聊天、解读新闻、搜索热点、生成文章，还能帮你执行网站操作。直接说就行！',
+      type: 'chat',
+    },
   ]
 }
 
@@ -621,9 +775,17 @@ async function switchConversation(convId: string) {
         loaded.push({ role: msg.role, content: msg.content, type: 'chat' })
       }
     }
-    messages.value = loaded.length > 0
-      ? loaded
-      : [{ role: 'assistant', content: '你好！我可以和你聊天、解读新闻、搜索热点、生成文章，还能帮你执行网站操作。直接说就行！', type: 'chat' }]
+    messages.value =
+      loaded.length > 0
+        ? loaded
+        : [
+            {
+              role: 'assistant',
+              content:
+                '你好！我可以和你聊天、解读新闻、搜索热点、生成文章，还能帮你执行网站操作。直接说就行！',
+              type: 'chat',
+            },
+          ]
     scrollToBottom()
   } catch (e: any) {
     ElMessage.error('加载会话失败')
@@ -669,59 +831,67 @@ async function sendChat() {
   scrollToBottom()
 
   const currentNewsId = store.currentDetailNews?.news_id
-  const newsIds = store.selectedNewsIds.length > 0 ? store.selectedNewsIds : (currentNewsId ? [currentNewsId] : [])
+  const newsIds =
+    store.selectedNewsIds.length > 0 ? store.selectedNewsIds : currentNewsId ? [currentNewsId] : []
 
-  let currentMsgIdx = msgIdx
+  const currentMsgIdx = msgIdx
   let isLoading = false
   let pendingActions: AgentAction[] = []
 
-  streamAgentChat(msg, newsIds, {
-    onPrompt(prompt) {
-      messages.value[currentMsgIdx].prompt = prompt
-      messages.value[currentMsgIdx].promptExpanded = false
-    },
-    onLoading(message) {
-      isLoading = true
-      messages.value[currentMsgIdx].content = `⏳ ${message}`
-      scrollToBottom()
-    },
-    onLoadingDone() {
-      isLoading = false
-      if (messages.value[currentMsgIdx].content.startsWith('⏳')) {
-        messages.value[currentMsgIdx].content = ''
-      }
-    },
-    onChunk(text) {
-      if (isLoading) {
+  streamAgentChat(
+    msg,
+    newsIds,
+    {
+      onPrompt(prompt) {
+        messages.value[currentMsgIdx].prompt = prompt
+        messages.value[currentMsgIdx].promptExpanded = false
+      },
+      onLoading(message) {
+        isLoading = true
+        messages.value[currentMsgIdx].content = `⏳ ${message}`
+        scrollToBottom()
+      },
+      onLoadingDone() {
         isLoading = false
-        messages.value[currentMsgIdx].content = ''
-      }
-      messages.value[currentMsgIdx].content += text
-      scrollToBottom()
+        if (messages.value[currentMsgIdx].content.startsWith('⏳')) {
+          messages.value[currentMsgIdx].content = ''
+        }
+      },
+      onChunk(text) {
+        if (isLoading) {
+          isLoading = false
+          messages.value[currentMsgIdx].content = ''
+        }
+        messages.value[currentMsgIdx].content += text
+        scrollToBottom()
+      },
+      onAction(action) {
+        pendingActions.push(action)
+      },
+      onConversationId(id) {
+        currentConversationId.value = id
+      },
+      onDone() {
+        const content = messages.value[currentMsgIdx].content.trim()
+        if (!content || content.startsWith('⏳')) {
+          messages.value.splice(currentMsgIdx, 1)
+        } else {
+          pushAssistantDone(currentMsgIdx)
+        }
+        generating.value = false
+        for (const action of pendingActions) {
+          handleAction(action)
+        }
+        pendingActions = []
+      },
+      onError(err) {
+        pushAssistantError(currentMsgIdx, `请求失败：${err}`)
+      },
     },
-    onAction(action) {
-      pendingActions.push(action)
-    },
-    onConversationId(id) {
-      currentConversationId.value = id
-    },
-    onDone() {
-      const content = messages.value[currentMsgIdx].content.trim()
-      if (!content || content.startsWith('⏳')) {
-        messages.value.splice(currentMsgIdx, 1)
-      } else {
-        pushAssistantDone(currentMsgIdx)
-      }
-      generating.value = false
-      for (const action of pendingActions) {
-        handleAction(action)
-      }
-      pendingActions = []
-    },
-    onError(err) {
-      pushAssistantError(currentMsgIdx, `请求失败：${err}`)
-    },
-  }, currentNewsId, webSearchEnabled.value, currentConversationId.value)
+    currentNewsId,
+    webSearchEnabled.value,
+    currentConversationId.value ?? undefined
+  )
 }
 
 // ── Drag ────────────────────────────────────────────────────
@@ -767,8 +937,14 @@ function startResize(e: MouseEvent, dir: 't' | 'b' | 'l' | 'r' | 'tl' | 'tr' | '
     py: actualPy,
   }
   const cursors: Record<string, string> = {
-    t: 'n-resize', b: 's-resize', l: 'w-resize', r: 'e-resize',
-    tl: 'nw-resize', tr: 'ne-resize', bl: 'sw-resize', br: 'se-resize',
+    t: 'n-resize',
+    b: 's-resize',
+    l: 'w-resize',
+    r: 'e-resize',
+    tl: 'nw-resize',
+    tr: 'ne-resize',
+    bl: 'sw-resize',
+    br: 'se-resize',
   }
   document.body.style.cursor = cursors[dir] || 'default'
   document.body.style.userSelect = 'none'
@@ -835,8 +1011,14 @@ function onMouseMove(e: MouseEvent) {
 
     const vx = window.innerWidth
     const vy = window.innerHeight
-    if (newX < 0) { newW += newX; newX = 0 }
-    if (newY < 0) { newH += newY; newY = 0 }
+    if (newX < 0) {
+      newW += newX
+      newX = 0
+    }
+    if (newY < 0) {
+      newH += newY
+      newY = 0
+    }
     if (newX + newW > vx) newW = vx - newX
     if (newY + newH > vy) newH = vy - newY
 
@@ -894,8 +1076,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 3px 16px rgba(139, 92, 246, 0.3), 0 1px 4px rgba(59, 130, 246, 0.15);
-  transition: transform 0.25s, box-shadow 0.25s;
+  box-shadow:
+    0 3px 16px rgba(139, 92, 246, 0.3),
+    0 1px 4px rgba(59, 130, 246, 0.15);
+  transition:
+    transform 0.25s,
+    box-shadow 0.25s;
   border: 2px solid rgba(167, 139, 250, 0.35);
   position: relative;
 }
@@ -913,13 +1099,19 @@ onBeforeUnmount(() => {
 }
 
 @keyframes borderSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .bubble-inner:hover {
   transform: scale(1.08);
-  box-shadow: 0 6px 28px rgba(139, 92, 246, 0.4), 0 2px 8px rgba(59, 130, 246, 0.2);
+  box-shadow:
+    0 6px 28px rgba(139, 92, 246, 0.4),
+    0 2px 8px rgba(59, 130, 246, 0.2);
 }
 
 .bubble-inner:hover::before {
@@ -939,13 +1131,19 @@ onBeforeUnmount(() => {
 }
 
 @keyframes borderSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .bubble-inner:hover {
   transform: scale(1.08);
-  box-shadow: 0 6px 24px rgba(196, 181, 253, 0.45), 0 2px 8px rgba(186, 230, 253, 0.3);
+  box-shadow:
+    0 6px 24px rgba(196, 181, 253, 0.45),
+    0 2px 8px rgba(186, 230, 253, 0.3);
 }
 
 .bubble-inner:hover::before {
@@ -959,9 +1157,16 @@ onBeforeUnmount(() => {
   flex-direction: column;
   border-radius: 14px;
   background: #fff;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(99, 102, 241, 0.06);
+  box-shadow:
+    0 8px 40px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(99, 102, 241, 0.06);
   overflow: hidden;
-  transition: left 0.25s ease, top 0.25s ease, width 0.25s ease, height 0.25s ease, border-radius 0.25s ease;
+  transition:
+    left 0.25s ease,
+    top 0.25s ease,
+    width 0.25s ease,
+    height 0.25s ease,
+    border-radius 0.25s ease;
 }
 
 .agent-panel.dragging {
@@ -970,7 +1175,12 @@ onBeforeUnmount(() => {
 }
 
 .agent-panel.undocking {
-  transition: left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease, border-radius 0.3s ease;
+  transition:
+    left 0.3s ease,
+    top 0.3s ease,
+    width 0.3s ease,
+    height 0.3s ease,
+    border-radius 0.3s ease;
 }
 
 .snap-preview {
@@ -1146,15 +1356,33 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: #1e293b;
 }
-.msg-content :deep(h1) { font-size: 17px; }
-.msg-content :deep(h2) { font-size: 15px; }
-.msg-content :deep(h3) { font-size: 14px; }
-.msg-content :deep(p) { margin: 3px 0; }
+.msg-content :deep(h1) {
+  font-size: 17px;
+}
+.msg-content :deep(h2) {
+  font-size: 15px;
+}
+.msg-content :deep(h3) {
+  font-size: 14px;
+}
+.msg-content :deep(p) {
+  margin: 3px 0;
+}
 .msg-content :deep(ul),
-.msg-content :deep(ol) { padding-left: 18px; margin: 3px 0; }
-.msg-content :deep(li) { margin: 1px 0; }
-.msg-content :deep(strong) { font-weight: 600; color: #1e293b; }
-.msg-content :deep(em) { font-style: italic; }
+.msg-content :deep(ol) {
+  padding-left: 18px;
+  margin: 3px 0;
+}
+.msg-content :deep(li) {
+  margin: 1px 0;
+}
+.msg-content :deep(strong) {
+  font-weight: 600;
+  color: #1e293b;
+}
+.msg-content :deep(em) {
+  font-style: italic;
+}
 .msg-content :deep(code) {
   background: #eef2ff;
   padding: 1px 5px;
@@ -1188,8 +1416,14 @@ onBeforeUnmount(() => {
 }
 
 @keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .msg-actions {
@@ -1287,7 +1521,9 @@ onBeforeUnmount(() => {
   border: 1px solid #e0e7ff;
   border-radius: 10px;
   padding: 4px 4px 4px 2px;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .web-search-btn {
@@ -1454,8 +1690,14 @@ onBeforeUnmount(() => {
 }
 
 @keyframes slideIn {
-  from { transform: translateX(-100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 .conv-sidebar-header {
@@ -1474,7 +1716,9 @@ onBeforeUnmount(() => {
   color: #9ca3af;
   font-size: 12px;
 }
-.conv-close-btn:hover { color: #6b7280; }
+.conv-close-btn:hover {
+  color: #6b7280;
+}
 
 .conv-sidebar-body {
   flex: 1;
@@ -1490,8 +1734,12 @@ onBeforeUnmount(() => {
   transition: background 0.15s;
   position: relative;
 }
-.conv-item:hover { background: #eef2ff; }
-.conv-item.active { background: #e0e7ff; }
+.conv-item:hover {
+  background: #eef2ff;
+}
+.conv-item.active {
+  background: #e0e7ff;
+}
 
 .conv-item-title {
   flex: 1;
@@ -1517,8 +1765,12 @@ onBeforeUnmount(() => {
   cursor: pointer;
   flex-shrink: 0;
 }
-.conv-item:hover .conv-item-delete { display: inline; }
-.conv-item-delete:hover { color: #ef4444; }
+.conv-item:hover .conv-item-delete {
+  display: inline;
+}
+.conv-item-delete:hover {
+  color: #ef4444;
+}
 
 .conv-empty {
   text-align: center;

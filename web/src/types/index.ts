@@ -40,24 +40,24 @@ export const SOURCE_LABELS: Record<string, string> = {
   'cls-hot': '财联社热门',
   'cls-telegraph': '财联社电报',
   'wallstreetcn-hot': '华尔街见闻',
-  'cankaoxiaoxi': '参考消息',
-  'thepaper': '澎湃新闻',
-  'toutiao': '今日头条',
-  'xueqiu': '雪球',
-  'weibo': '微博',
-  'douyin': '抖音',
+  cankaoxiaoxi: '参考消息',
+  thepaper: '澎湃新闻',
+  toutiao: '今日头条',
+  xueqiu: '雪球',
+  weibo: '微博',
+  douyin: '抖音',
   'hacker-news': 'Hacker News',
-  'ruanyifeng': '阮一峰的网络日志',
+  ruanyifeng: '阮一峰的网络日志',
 }
 
 export const VIDEO_SOURCES = new Set(['douyin'])
 
 // 已知不支持 iframe 嵌入的源，直接显示"新窗口打开"
 export const NO_IFRAME_SOURCES = new Set([
-  'weibo',          // 微博：X-Frame-Options
-  'toutiao',        // 今日头条：CSP 限制
-  'thepaper',       // 澎湃新闻：X-Frame-Options
-  'cankaoxiaoxi',   // 参考消息：不允许嵌入
+  'weibo', // 微博：X-Frame-Options
+  'toutiao', // 今日头条：CSP 限制
+  'thepaper', // 澎湃新闻：X-Frame-Options
+  'cankaoxiaoxi', // 参考消息：不允许嵌入
 ])
 
 export const PLATFORM_LABELS: Record<string, string> = {
@@ -137,6 +137,7 @@ export interface KBSource {
   page: number
   score: number
   preview: string
+  text?: string
 }
 
 export interface KBConversation {

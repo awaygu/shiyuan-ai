@@ -2,47 +2,55 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import uuid
-import asyncio
 from pathlib import Path
-from typing import Any
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from config import (
-    UPLOAD_DIR, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, KB_EMBEDDING_DIM, MAX_UPLOAD_SIZE,
-    TEMPERATURE_GENERATE,
+    KB_EMBEDDING_DIM,
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_MODEL,
     MAX_RAG_CONTEXT_CHARS,
+    MAX_UPLOAD_SIZE,
+    TEMPERATURE_GENERATE,
+    UPLOAD_DIR,
 )
 from core.style_manager import build_prompt_display_text, prompt_manager
 from database import (
+    clear_kb_messages,
+    create_conversation,
     create_kb,
-    load_kbs,
-    load_kb,
-    update_kb as db_update_kb,
-    delete_kb as db_delete_kb,
-    save_kb_doc,
-    load_kb_docs,
+    delete_conversation,
     delete_kb_doc,
+    load_conversations,
+    load_kb,
+    load_kb_chunk_texts,
+    load_kb_docs,
+    load_kbs,
+    load_messages,
     rename_kb_doc,
     save_kb_chunks,
-    load_kb_chunk_texts,
-    create_conversation,
-    load_conversations,
-    delete_conversation,
+    save_kb_doc,
     save_message,
-    load_messages,
-    clear_kb_messages,
 )
-from rag.embeddings import DashScopeEmbedding
+from database import (
+    delete_kb as db_delete_kb,
+)
+from database import (
+    update_kb as db_update_kb,
+)
 from rag.chunker import TextChunker
+from rag.embeddings import DashScopeEmbedding
+from rag.loader import DocumentLoader
 from rag.vectorstore import VectorStoreManager
-from rag.loader import DocumentLoader, IMAGE_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -135,7 +143,7 @@ async def delete_knowledge_base(kb_id: str):
     if not kb:
         raise HTTPException(404, "Knowledge base not found")
 
-    chunk_ids = await db_delete_kb(kb_id)
+    _ = await db_delete_kb(kb_id)
     vs_manager.remove(kb_id)
 
     kb_dir = Path(UPLOAD_DIR) / kb_id
@@ -152,6 +160,7 @@ async def delete_knowledge_base(kb_id: str):
 
 # ── Upload ──────────────────────────────────────────────────────
 
+
 async def _ingest_text(
     kb_id: str,
     filename: str,
@@ -166,8 +175,9 @@ async def _ingest_text(
     if not text.strip():
         raise HTTPException(400, "内容为空，无法入库")
 
-    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
     from openai import OpenAI as LLMClient
+
+    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
     from rag.loader import PageText
 
     doc_id = uuid.uuid4().hex[:16]
@@ -256,6 +266,7 @@ async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
 
     try:
         import asyncio
+
         loop = asyncio.get_event_loop()
         doc = await loop.run_in_executor(None, loader.load, save_path, doc_id)
     except Exception as e:
@@ -267,8 +278,9 @@ async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
         save_path.unlink(missing_ok=True)
         raise HTTPException(400, "Document has no extractable text")
 
-    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
     from openai import OpenAI as LLMClient
+
+    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
     doc_summary = ""
     try:
@@ -356,6 +368,7 @@ async def upload_documents(kb_id: str, files: list[UploadFile] = File(...)):
 
 # ── Web Search (standalone, save-to-KB) ─────────────────────────
 
+
 class KBWebSearchRequest(BaseModel):
     query: str
 
@@ -368,7 +381,7 @@ async def kb_web_search(kb_id: str, req: KBWebSearchRequest):
     if not req.query.strip():
         raise HTTPException(400, "搜索词不能为空")
 
-    from tools.web_search import web_search_structured, get_web_search_tool
+    from tools.web_search import get_web_search_tool, web_search_structured
 
     if get_web_search_tool() is None:
         raise HTTPException(503, "联网搜索未启用或未配置 API Key")
@@ -431,6 +444,7 @@ async def kb_ingest_text(kb_id: str, req: KBIngestTextRequest):
 
 # ── List ────────────────────────────────────────────────────────
 
+
 @router.get("/bases/{kb_id}/documents")
 async def list_documents(kb_id: str):
     kb = await load_kb(kb_id)
@@ -442,6 +456,7 @@ async def list_documents(kb_id: str):
 
 
 # ── Delete ──────────────────────────────────────────────────────
+
 
 @router.get("/bases/{kb_id}/documents/{doc_id}")
 async def get_document(kb_id: str, doc_id: str):
@@ -493,6 +508,7 @@ async def delete_document(kb_id: str, doc_id: str):
 
 # ── Search ──────────────────────────────────────────────────────
 
+
 class KBSearchRequest(BaseModel):
     query: str
     doc_ids: list[str] = Field(default_factory=list)
@@ -519,7 +535,7 @@ async def search_knowledge(kb_id: str, req: KBSearchRequest):
         return {"results": [], "total": 0}
 
     chunk_ids = [cid for cid, _ in hits]
-    score_map = {cid: score for cid, score in hits}
+    score_map = dict(hits)
     chunk_data = await load_kb_chunk_texts(chunk_ids)
 
     results = []
@@ -527,15 +543,17 @@ async def search_knowledge(kb_id: str, req: KBSearchRequest):
         if cid in chunk_data:
             cd = chunk_data[cid]
             preview = cd["text"][:120] + ("..." if len(cd["text"]) > 120 else "")
-            results.append({
-                "chunk_id": cid,
-                "doc_id": cd["doc_id"],
-                "filename": cd["filename"],
-                "page": cd["page"],
-                "text": cd["text"],
-                "preview": preview,
-                "score": round(score_map.get(cid, 0), 4),
-            })
+            results.append(
+                {
+                    "chunk_id": cid,
+                    "doc_id": cd["doc_id"],
+                    "filename": cd["filename"],
+                    "page": cd["page"],
+                    "text": cd["text"],
+                    "preview": preview,
+                    "score": round(score_map.get(cid, 0), 4),
+                }
+            )
 
     return {"results": results, "total": len(results)}
 
@@ -554,8 +572,9 @@ async def get_suggestions(kb_id: str):
     summaries = [d.get("summary", "") for d in docs if d.get("summary")]
     doc_names = [d["filename"] for d in docs]
 
-    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
     from openai import OpenAI as LLMClient
+
+    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
     try:
         llm_client = LLMClient(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=30.0, max_retries=2)
@@ -581,6 +600,7 @@ async def get_suggestions(kb_id: str):
 
 
 # ── Conversations ──────────────────────────────────────────────
+
 
 class CreateConvRequest(BaseModel):
     title: str = ""
@@ -635,14 +655,16 @@ class SaveMessageRequest(BaseModel):
 @router.post("/bases/{kb_id}/conversations/{conv_id}/messages")
 async def save_msg(kb_id: str, conv_id: str, req: SaveMessageRequest):
     msg_id = uuid.uuid4().hex[:12]
-    await save_message({
-        "msg_id": msg_id,
-        "conv_id": conv_id,
-        "role": req.role,
-        "content": req.content,
-        "type": req.type,
-        "sources": json.dumps(req.sources, ensure_ascii=False) if req.sources else "",
-    })
+    await save_message(
+        {
+            "msg_id": msg_id,
+            "conv_id": conv_id,
+            "role": req.role,
+            "content": req.content,
+            "type": req.type,
+            "sources": json.dumps(req.sources, ensure_ascii=False) if req.sources else "",
+        }
+    )
     return {"msg_id": msg_id}
 
 
@@ -672,8 +694,8 @@ async def _stream_kb_article(
     生成完成后会自动将 user 与 assistant 消息以 type='article' 写入 kb_messages，
     并将历史会话作为上下文喂给 LLM，使生成能延续之前的要求与文章。
     """
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
     from langchain_openai import ChatOpenAI
-    from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
     vector_store = vs_manager.get(kb_id)
     if vector_store.total_vectors == 0:
@@ -701,14 +723,16 @@ async def _stream_kb_article(
     # 仅当用户真实输入时才保存 user 消息，避免历史里堆积「总结知识库核心内容」之类的占位
     user_msg_id = uuid.uuid4().hex[:12]
     if has_user_input:
-        await save_message({
-            "msg_id": user_msg_id,
-            "conv_id": conv_id,
-            "role": "user",
-            "content": raw_query,
-            "type": "article",
-            "sources": "",
-        })
+        await save_message(
+            {
+                "msg_id": user_msg_id,
+                "conv_id": conv_id,
+                "role": "user",
+                "content": raw_query,
+                "type": "article",
+                "sources": "",
+            }
+        )
 
     # 加载历史会话作为上下文（仅取最近 50 条，避免长会话上下文爆炸）
     history_msgs = await load_messages(conv_id, limit=50)
@@ -728,10 +752,7 @@ async def _stream_kb_article(
     # 检索查询：将历史最近几轮 + 本次用户输入合并，提升对知识库的召回相关性
     if prior_history:
         recent = prior_history[-4:]  # 最近 4 条历史
-        hist_text = "\n".join(
-            ("用户：" if isinstance(m, HumanMessage) else "AI：") + m.content
-            for m in recent
-        )
+        hist_text = "\n".join(("用户：" if isinstance(m, HumanMessage) else "AI：") + m.content for m in recent)
         retrieval_query = f"{hist_text}\n用户：{raw_query or default_query}"
 
     # 发给 LLM 的用户消息：包含原话（或默认指令）+ 风格提示
@@ -751,7 +772,7 @@ async def _stream_kb_article(
         filtered_hits = []
     else:
         chunk_ids = [cid for cid, _ in hits]
-        score_map = {cid: score for cid, score in hits}
+        score_map = dict(hits)
         chunk_data = await load_kb_chunk_texts(chunk_ids)
         filtered_hits = [(cid, score_map[cid]) for cid in chunk_ids if cid in chunk_data]
 
@@ -814,19 +835,22 @@ async def _stream_kb_article(
 
     if full_content:
         msg_id = uuid.uuid4().hex[:12]
-        await save_message({
-            "msg_id": msg_id,
-            "conv_id": conv_id,
-            "role": "assistant",
-            "content": full_content,
-            "type": "article",
-            "sources": json.dumps(sources, ensure_ascii=False) if sources else "",
-        })
+        await save_message(
+            {
+                "msg_id": msg_id,
+                "conv_id": conv_id,
+                "role": "assistant",
+                "content": full_content,
+                "type": "article",
+                "sources": json.dumps(sources, ensure_ascii=False) if sources else "",
+            }
+        )
 
     yield "data: [DONE]\n\n"
 
 
 # ── RAG Chat (SSE stream, with short-term memory) ──────────────
+
 
 class KBChatRequest(BaseModel):
     message: str
@@ -857,7 +881,6 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
         await create_conversation({"conv_id": conv_id, "kb_id": kb_id, "title": kb["name"]})
 
     from core.rag_graph import get_rag_graph, migrate_history
-    from langchain_core.messages import HumanMessage, AIMessage
 
     rag_graph = await get_rag_graph()
 
@@ -888,6 +911,7 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
         web_ctx = ""
         if req.web_search:
             from tools.web_search import get_web_search_tool
+
             ws_tool = get_web_search_tool()
             if ws_tool:
                 yield f"data: {json.dumps({'type': 'loading', 'message': '正在联网搜索...'}, ensure_ascii=False)}\n\n"
@@ -899,19 +923,19 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
         input_state["web_context"] = web_ctx
 
         msg_id = uuid.uuid4().hex[:12]
-        await save_message({
-            "msg_id": msg_id,
-            "conv_id": conv_id,
-            "role": "user",
-            "content": req.message,
-            "type": "chat",
-            "sources": "",
-        })
+        await save_message(
+            {
+                "msg_id": msg_id,
+                "conv_id": conv_id,
+                "role": "user",
+                "content": req.message,
+                "type": "chat",
+                "sources": "",
+            }
+        )
 
         try:
-            async for event in rag_graph.astream_events(
-                input_state, config=config, version="v2"
-            ):
+            async for event in rag_graph.astream_events(input_state, config=config, version="v2"):
                 kind = event.get("event", "")
 
                 if kind == "on_chain_end" and event.get("name") == "rewrite_query":
@@ -931,8 +955,14 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                     doc_meta = output.get("doc_meta", "")
                     intent = output.get("intent", "specific")
                     # 根据意图选择展示的系统提示
-                    system_for_display = prompt_manager.kb_rag_summary_system_prompt if intent == "summary" and doc_meta else prompt_manager.kb_rag_system_prompt
-                    prompt_text = _build_rag_prompt_text(system_for_display, context_text, req.message, doc_meta, web_ctx)
+                    system_for_display = (
+                        prompt_manager.kb_rag_summary_system_prompt
+                        if intent == "summary" and doc_meta
+                        else prompt_manager.kb_rag_system_prompt
+                    )
+                    prompt_text = _build_rag_prompt_text(
+                        system_for_display, context_text, req.message, doc_meta, web_ctx
+                    )
                     if not prompt_sent:
                         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
                         prompt_sent = True
@@ -947,8 +977,14 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                         last_context = (cur_state.values or {}).get("last_context", "")
                         intent = (cur_state.values or {}).get("intent", "specific")
                         doc_meta = (cur_state.values or {}).get("doc_meta", "")
-                        system_for_display = prompt_manager.kb_rag_summary_system_prompt if intent == "summary" and doc_meta else prompt_manager.kb_rag_system_prompt
-                        prompt_text = _build_rag_prompt_text(system_for_display, last_context, req.message, doc_meta, web_ctx)
+                        system_for_display = (
+                            prompt_manager.kb_rag_summary_system_prompt
+                            if intent == "summary" and doc_meta
+                            else prompt_manager.kb_rag_system_prompt
+                        )
+                        prompt_text = _build_rag_prompt_text(
+                            system_for_display, last_context, req.message, doc_meta, web_ctx
+                        )
                         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
                         prompt_sent = True
                         if last_sources and not sources_sent:
@@ -972,14 +1008,16 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
 
         if full_content:
             asst_msg_id = uuid.uuid4().hex[:12]
-            await save_message({
-                "msg_id": asst_msg_id,
-                "conv_id": conv_id,
-                "role": "assistant",
-                "content": full_content,
-                "type": "chat",
-                "sources": json.dumps(sources_out, ensure_ascii=False) if sources_out else "",
-            })
+            await save_message(
+                {
+                    "msg_id": asst_msg_id,
+                    "conv_id": conv_id,
+                    "role": "assistant",
+                    "content": full_content,
+                    "type": "chat",
+                    "sources": json.dumps(sources_out, ensure_ascii=False) if sources_out else "",
+                }
+            )
 
         yield "data: [DONE]\n\n"
 
@@ -992,6 +1030,7 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
 
 # ── Clear KB Chat ───────────────────────────────────────────────
 
+
 @router.delete("/bases/{kb_id}/chat/clear")
 async def clear_kb_chat(kb_id: str):
     kb = await load_kb(kb_id)
@@ -1001,6 +1040,7 @@ async def clear_kb_chat(kb_id: str):
     conv_id = _kb_conv_id(kb_id)
 
     from core.rag_graph import clear_rag_checkpointer
+
     await clear_rag_checkpointer(conv_id)
 
     cleared = await clear_kb_messages(conv_id)
@@ -1009,6 +1049,7 @@ async def clear_kb_chat(kb_id: str):
 
 
 # ── KB Chat Messages ────────────────────────────────────────────
+
 
 @router.get("/bases/{kb_id}/chat/messages")
 async def get_kb_chat_messages(kb_id: str):
@@ -1030,6 +1071,7 @@ async def get_kb_chat_messages(kb_id: str):
 
 
 # ── RAG Generate Article (SSE stream) ──────────────────────────
+
 
 class KBGenerateRequest(BaseModel):
     message: str = ""
@@ -1066,6 +1108,7 @@ async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
 
 # ── Internal search (for agent tool) ──────────────────────────
 
+
 async def kb_search_internal(query: str, top_k: int = 5) -> str:
     kbs = await load_kbs()
     if not kbs:
@@ -1089,7 +1132,9 @@ async def kb_search_internal(query: str, top_k: int = 5) -> str:
             if cid in chunk_data:
                 cd = chunk_data[cid]
                 page_info = f", 第{cd['page']}页" if cd.get("page", 0) > 0 else ""
-                all_results.append(f"[知识库: {kb['name']}, 来源: {cd['filename']}{page_info}, 相关度: {score:.2f}]\n{cd['text']}")
+                all_results.append(
+                    f"[知识库: {kb['name']}, 来源: {cd['filename']}{page_info}, 相关度: {score:.2f}]\n{cd['text']}"
+                )
 
     if not all_results:
         return "未在知识库中找到与查询相关的内容。"

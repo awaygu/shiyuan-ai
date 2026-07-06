@@ -8,13 +8,13 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from core.checkpointer import (
-    create_conversation,
-    list_conversations,
-    get_conversation,
-    delete_conversation,
-    update_conversation_title,
-    get_messages,
     clear_messages,
+    create_conversation,
+    delete_conversation,
+    get_conversation,
+    get_messages,
+    list_conversations,
+    update_conversation_title,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,7 @@ router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
 
 # ── Request/Response Models ────────────────────────────────────
+
 
 class CreateConversationRequest(BaseModel):
     title: str = "新对话"
@@ -32,6 +33,7 @@ class UpdateTitleRequest(BaseModel):
 
 
 # ── Endpoints ──────────────────────────────────────────────────
+
 
 @router.post("")
 async def api_create_conversation(req: CreateConversationRequest | None = None):

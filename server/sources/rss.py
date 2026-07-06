@@ -20,6 +20,7 @@ from .base import BaseCrawler, NewsItem
 
 try:
     import feedparser
+
     HAS_FEEDPARSER = True
 except ImportError:
     HAS_FEEDPARSER = False
@@ -29,6 +30,7 @@ except ImportError:
 @dataclass
 class RSSFeedConfig:
     """RSS feed configuration."""
+
     id: str
     name: str
     url: str
@@ -45,6 +47,7 @@ DEFAULT_RSS_FEEDS = [
 @dataclass
 class ParsedRSSItem:
     """Parsed RSS item."""
+
     title: str
     url: str
     published_at: str | None = None
@@ -57,10 +60,7 @@ class RSSParser:
 
     def __init__(self, max_summary_length: int = 500):
         if not HAS_FEEDPARSER:
-            raise ImportError(
-                "RSS parsing requires feedparser. "
-                "Install with: pip install feedparser"
-            )
+            raise ImportError("RSS parsing requires feedparser. Install with: pip install feedparser")
         self.max_summary_length = max_summary_length
 
     def parse(self, content: str, feed_url: str = "") -> list[ParsedRSSItem]:
@@ -140,16 +140,12 @@ class RSSParser:
         if summary:
             summary = self._clean_text(summary)
             if len(summary) > self.max_summary_length:
-                summary = summary[:self.max_summary_length] + "..."
+                summary = summary[: self.max_summary_length] + "..."
 
         author = None
         authors = item_data.get("authors", [])
         if authors:
-            names = [
-                a.get("name", "")
-                for a in authors
-                if isinstance(a, dict) and a.get("name")
-            ]
+            names = [a.get("name", "") for a in authors if isinstance(a, dict) and a.get("name")]
             if names:
                 author = ", ".join(names)
 
@@ -206,8 +202,8 @@ class RSSParser:
         if not text:
             return ""
         text = html.unescape(text)
-        text = re.sub(r'<[^>]+>', '', text)
-        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = re.sub(r"\s+", " ", text)
         return text.strip()
 
     def _parse_date(self, entry: Any) -> str | None:
@@ -224,6 +220,7 @@ class RSSParser:
         if date_str:
             try:
                 from email.utils import parsedate_to_datetime
+
                 dt = parsedate_to_datetime(date_str)
                 return dt.isoformat()
             except (ValueError, TypeError):
@@ -246,7 +243,7 @@ class RSSParser:
             return None
         summary = self._clean_text(summary)
         if len(summary) > self.max_summary_length:
-            summary = summary[:self.max_summary_length] + "..."
+            summary = summary[: self.max_summary_length] + "..."
         return summary
 
     def _parse_author(self, entry: Any) -> str | None:
@@ -276,19 +273,22 @@ class RSSCrawler(BaseCrawler):
     async def crawl(self) -> list[NewsItem]:
         """Crawl news from RSS feed."""
         try:
-            content = await self._fetch(self.feed.url, headers={
-                "User-Agent": "NewsInterpretation/1.0 RSS Reader",
-                "Accept": (
-                    "application/feed+json, application/json, "
-                    "application/rss+xml, application/atom+xml, "
-                    "application/xml, text/xml, */*"
-                ),
-            })
+            content = await self._fetch(
+                self.feed.url,
+                headers={
+                    "User-Agent": "NewsInterpretation/1.0 RSS Reader",
+                    "Accept": (
+                        "application/feed+json, application/json, "
+                        "application/rss+xml, application/atom+xml, "
+                        "application/xml, text/xml, */*"
+                    ),
+                },
+            )
 
             parsed_items = self.parser.parse(content, self.feed.url)
 
             if self.feed.max_items > 0:
-                parsed_items = parsed_items[:self.feed.max_items]
+                parsed_items = parsed_items[: self.feed.max_items]
 
             items = []
             seen = set()
@@ -302,24 +302,24 @@ class RSSCrawler(BaseCrawler):
                 pub_time = datetime.now()
                 if parsed.published_at:
                     try:
-                        pub_time = datetime.fromisoformat(
-                            parsed.published_at.replace("Z", "+00:00")
-                        )
+                        pub_time = datetime.fromisoformat(parsed.published_at.replace("Z", "+00:00"))
                     except (ValueError, TypeError):
                         pass
 
-                items.append(NewsItem(
-                    news_id=f"rss_{self.feed.id}_{dedup_key}",
-                    title=parsed.title,
-                    summary=parsed.summary or parsed.title[:200],
-                    source=self.feed.id,
-                    url=parsed.url,
-                    published_at=pub_time,
-                    extra={
-                        "author": parsed.author,
-                        "feed_name": self.feed.name,
-                    },
-                ))
+                items.append(
+                    NewsItem(
+                        news_id=f"rss_{self.feed.id}_{dedup_key}",
+                        title=parsed.title,
+                        summary=parsed.summary or parsed.title[:200],
+                        source=self.feed.id,
+                        url=parsed.url,
+                        published_at=pub_time,
+                        extra={
+                            "author": parsed.author,
+                            "feed_name": self.feed.name,
+                        },
+                    )
+                )
 
             return items
 

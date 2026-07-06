@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from pydantic import BaseModel
 
 from config import KEYWORDS_FILE
 from sources.filter import KeywordFilter
+
 from . import deps
 
 logger = logging.getLogger(__name__)
@@ -24,8 +26,7 @@ async def get_keywords_status():
         "enabled": deps.kw_filter.enabled,
         "file": KEYWORDS_FILE,
         "groups": [
-            {"name": name, "keywords": [kw for kw, _ in rules]}
-            for name, rules in deps.kw_filter.groups.items()
+            {"name": name, "keywords": [kw for kw, _ in rules]} for name, rules in deps.kw_filter.groups.items()
         ],
         "total_rules": total_rules,
     }
@@ -63,10 +64,11 @@ HEADER_LINES = [
     "",
 ]
 
+_KEYWORDS_PATH = Path(KEYWORDS_FILE)
+
 
 @router.put("")
 async def update_keywords(req: UpdateKeywordsRequest):
-    path = Path(KEYWORDS_FILE)
     try:
         lines = list(HEADER_LINES)
         for group in req.groups:
@@ -74,7 +76,7 @@ async def update_keywords(req: UpdateKeywordsRequest):
             for kw in group.keywords:
                 lines.append(kw)
             lines.append("")
-        path.write_text("\n".join(lines), encoding="utf-8")
+        await asyncio.to_thread(_KEYWORDS_PATH.write_text, "\n".join(lines), encoding="utf-8")
     except Exception as e:
         logger.error("Failed to write keywords file: %s", e)
         raise HTTPException(500, f"Failed to write keywords file: {e}")
@@ -85,7 +87,6 @@ async def update_keywords(req: UpdateKeywordsRequest):
         "enabled": deps.kw_filter.enabled,
         "total_rules": total_rules,
         "groups": [
-            {"name": name, "keywords": [kw for kw, _ in rules]}
-            for name, rules in deps.kw_filter.groups.items()
+            {"name": name, "keywords": [kw for kw, _ in rules]} for name, rules in deps.kw_filter.groups.items()
         ],
     }

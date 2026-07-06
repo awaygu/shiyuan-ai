@@ -5,7 +5,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-# 跳过 vue-tsc 类型检查（vue-tsc 1.x 与新版 TypeScript 存在兼容问题），直接构建
+# 可选类型检查：CI 传入 RUN_TYPECHECK=true
+ARG RUN_TYPECHECK=false
+RUN if [ "$RUN_TYPECHECK" = "true" ]; then npx vue-tsc --noEmit; fi
 RUN npx vite build
 
 # ── 服务阶段 ──

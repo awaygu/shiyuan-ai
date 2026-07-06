@@ -1,5 +1,6 @@
 # 虚拟环境
 venv/
+.python-version
 .env
 .env.local
 .env.*.local

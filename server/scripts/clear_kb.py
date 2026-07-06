@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """清空所有知识库数据：文档、向量、存档、数据库记录。"""
 
-import sqlite3
 import shutil
+import sqlite3
 from pathlib import Path
 
 base_dir = Path("uploads")

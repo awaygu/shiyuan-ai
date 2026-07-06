@@ -1,7 +1,9 @@
 <template>
   <div class="news-list">
     <div class="panel-header">
-      <h2><el-icon :size="20"><component is="Collection" /></el-icon> 新闻列表</h2>
+      <h2>
+        <el-icon :size="20"><Collection /></el-icon> 新闻列表
+      </h2>
       <div class="header-actions">
         <el-button
           size="small"
@@ -12,12 +14,7 @@
           @click="onRefresh"
           title="刷新当前来源"
         />
-        <el-button
-          size="small"
-          circle
-          @click="emit('toggle-keywords')"
-          title="关键词过滤设置"
-        >
+        <el-button size="small" circle @click="emit('toggle-keywords')" title="关键词过滤设置">
           <el-icon><Setting /></el-icon>
         </el-button>
         <el-select
@@ -61,13 +58,19 @@
             @click.stop
             size="small"
           />
-             <div class="card-clickable" @click="openDetail(item)">
-              <div class="card-title">
-                <el-tag v-if="isVideo(item)" size="small" type="danger" effect="dark" class="video-badge">
-                  <el-icon><VideoCamera /></el-icon>
-                </el-tag>
-                {{ item.title }}
-              </div>
+          <div class="card-clickable" @click="openDetail(item)">
+            <div class="card-title">
+              <el-tag
+                v-if="isVideo(item)"
+                size="small"
+                type="danger"
+                effect="dark"
+                class="video-badge"
+              >
+                <el-icon><VideoCamera /></el-icon>
+              </el-tag>
+              {{ item.title }}
+            </div>
             <div class="card-summary">{{ item.summary }}</div>
             <div class="card-time">{{ formatTime(item.published_at) }}</div>
           </div>
@@ -78,9 +81,7 @@
         <el-icon class="is-loading"><Loading /></el-icon>
         <span>正在获取最新数据...</span>
       </div>
-      <div v-else class="load-more-hint">
-        下拉到底自动刷新最新数据
-      </div>
+      <div v-else class="load-more-hint">下拉到底自动刷新最新数据</div>
       <div ref="sentinelRef" class="scroll-sentinel"></div>
     </div>
   </div>
@@ -88,7 +89,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { Refresh, Loading, VideoCamera, Setting } from '@element-plus/icons-vue'
+import { Refresh, Loading, VideoCamera, Setting, Collection } from '@element-plus/icons-vue'
 import { useNewsStore } from '@/stores'
 import { SOURCE_LABELS, VIDEO_SOURCES } from '@/types'
 import type { NewsItem } from '@/types'
@@ -123,12 +124,12 @@ async function onRefresh() {
 function setupObserver() {
   if (observer) observer.disconnect()
   observer = new IntersectionObserver(
-    (entries) => {
+    entries => {
       if (entries[0].isIntersecting && !store.loadingMore && !store.loading) {
         store.loadMoreNews()
       }
     },
-    { rootMargin: '200px' },
+    { rootMargin: '200px' }
   )
   if (sentinelRef.value) {
     observer.observe(sentinelRef.value)
@@ -137,7 +138,12 @@ function setupObserver() {
 
 function formatTime(iso: string): string {
   const d = new Date(iso)
-  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 onMounted(async () => {

@@ -17,12 +17,17 @@ export function useWechatPublish() {
     imageOpts.generate_cover = true
     imageOpts.generate_inline_images = false
     imageOptsVisible.value = true
-    return new Promise((resolve) => { _resolve = resolve })
+    return new Promise(resolve => {
+      _resolve = resolve
+    })
   }
 
   function confirmPublish() {
     imageOptsVisible.value = false
-    _resolve?.({ generate_cover: imageOpts.generate_cover, generate_inline_images: imageOpts.generate_inline_images })
+    _resolve?.({
+      generate_cover: imageOpts.generate_cover,
+      generate_inline_images: imageOpts.generate_inline_images,
+    })
     _resolve = null
   }
 

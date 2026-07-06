@@ -1,7 +1,7 @@
-from .base import BasePublisher, PublishResult, NeedLoginError, BrowserPublisher
+from .base import BasePublisher, BrowserPublisher, NeedLoginError, PublishResult
+from .douyin_pub import DouyinPublisher
 from .wechat_mp import WechatMpPublisher
 from .xiaohongshu import XiaohongshuPublisher
-from .douyin_pub import DouyinPublisher
 
 __all__ = [
     "BasePublisher",

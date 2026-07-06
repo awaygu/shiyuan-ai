@@ -26,7 +26,6 @@ import json
 import logging
 import random
 from datetime import datetime
-from typing import Any
 
 import requests as req_lib
 
@@ -55,7 +54,9 @@ async def check_newsnow_health(base_url: str, timeout: float = 3.0) -> bool:
     try:
         api_url = f"{base_url}?id=weibo"
         resp = await asyncio.to_thread(
-            req_lib.get, api_url, timeout=timeout,
+            req_lib.get,
+            api_url,
+            timeout=timeout,
         )
         data = resp.json()
         return data.get("status") in ("success", "cache")
@@ -86,10 +87,7 @@ class NewsNowCrawler(BaseCrawler):
         retry_wait_max: int = 2,
     ):
         if platform_id not in PLATFORM_CONFIG:
-            raise ValueError(
-                f"Unknown platform: {platform_id}. "
-                f"Available: {list(PLATFORM_CONFIG.keys())}"
-            )
+            raise ValueError(f"Unknown platform: {platform_id}. Available: {list(PLATFORM_CONFIG.keys())}")
         super().__init__(PLATFORM_CONFIG[platform_id]["alias"])
         self.platform_id = platform_id
         self.platform_name = PLATFORM_CONFIG[platform_id]["name"]
@@ -104,6 +102,7 @@ class NewsNowCrawler(BaseCrawler):
             return self.api_url
         try:
             from config import NEWSNOW_API_URL
+
             return NEWSNOW_API_URL
         except ImportError:
             return FALLBACK_API_URL
@@ -116,7 +115,8 @@ class NewsNowCrawler(BaseCrawler):
             if base != FALLBACK_API_URL:
                 logger.warning(
                     "[%s] Primary API failed, trying fallback: %s",
-                    self.platform_name, FALLBACK_API_URL,
+                    self.platform_name,
+                    FALLBACK_API_URL,
                 )
                 fallback_url = f"{FALLBACK_API_URL}?id={self.platform_id}"
                 data = await self._fetch_with_retry(fallback_url)
@@ -127,7 +127,7 @@ class NewsNowCrawler(BaseCrawler):
         seen = set()
 
         raw_items = data.get("items", [])
-        for rank, entry in enumerate(raw_items, 1):
+        for _rank, entry in enumerate(raw_items, 1):
             title = entry.get("title")
             if title is None or isinstance(title, float) or not str(title).strip():
                 continue
@@ -146,15 +146,17 @@ class NewsNowCrawler(BaseCrawler):
             else:
                 published_at = datetime.now()
 
-            items.append(NewsItem(
-                news_id=f"{self.alias}_{dedup_key}",
-                title=title,
-                summary=title[:200],
-                source=self.platform_id,
-                url=item_url,
-                published_at=published_at,
-                media_type=PLATFORM_CONFIG[self.platform_id].get("media_type", "article"),
-            ))
+            items.append(
+                NewsItem(
+                    news_id=f"{self.alias}_{dedup_key}",
+                    title=title,
+                    summary=title[:200],
+                    source=self.platform_id,
+                    url=item_url,
+                    published_at=published_at,
+                    media_type=PLATFORM_CONFIG[self.platform_id].get("media_type", "article"),
+                )
+            )
 
         return items if items else self._mock_fallback()
 
@@ -178,8 +180,7 @@ class NewsNowCrawler(BaseCrawler):
                     wait += (retries - 1) * random.uniform(1, 2)
                     await asyncio.sleep(wait)
                 else:
-                    logger.warning("[%s] Fetch failed after %d retries: %s",
-                                   self.platform_name, self.max_retries, e)
+                    logger.warning("[%s] Fetch failed after %d retries: %s", self.platform_name, self.max_retries, e)
                     return None
 
         return None
@@ -236,7 +237,4 @@ class NewsNowBatchCrawler:
         return results
 
     def get_platform_names(self) -> dict[str, str]:
-        return {
-            crawler.alias: crawler.platform_name
-            for crawler in self._crawlers.values()
-        }
+        return {crawler.alias: crawler.platform_name for crawler in self._crawlers.values()}

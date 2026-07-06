@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from datetime import datetime
 
 if sys.platform == "win32" and sys.version_info < (3, 13):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -13,44 +12,36 @@ if sys.platform == "win32" and sys.version_info < (3, 13):
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import (
-    NEWS_SOURCES,
-    SCHEDULE_ENABLED,
-    NEWSNOW_CRAWL_INTERVAL,
-    RSS_CRAWL_INTERVAL,
-    NEWSNOW_API_URL,
-    CORS_ORIGINS,
-)
-from sources.newsnow import check_newsnow_health, FALLBACK_API_URL
-from database import (
-    init_db,
-    load_news,
-    upsert_news,
-    load_articles,
-    load_publish_log,
-    close_db,
-)
+from api.agent import router as agent_router
+from api.conversations import router as conversations_router
 from api.deps import (
-    news_store,
-    article_store,
-    publish_log,
     kw_filter,
     newsnow_batch,
     rss_batch,
-    schedule_running as _schedule_running,
-    newsnow_interval as _newsnow_interval,
-    rss_interval as _rss_interval,
 )
-from api.news import router as news_router
 from api.interpret import router as interpret_router
+from api.keywords import router as keywords_router
+from api.knowledge import router as knowledge_router
+from api.news import router as news_router
+from api.prompts import router as prompts_router
 from api.publish import router as publish_router
 from api.schedule import router as schedule_router
-from api.keywords import router as keywords_router
-from api.prompts import router as prompts_router
-from api.agent import router as agent_router
-from api.knowledge import router as knowledge_router
 from api.tasks import router as tasks_router
-from api.conversations import router as conversations_router
+from config import (
+    CORS_ORIGINS,
+    NEWS_SOURCES,
+    NEWSNOW_API_URL,
+    SCHEDULE_ENABLED,
+)
+from database import (
+    close_db,
+    init_db,
+    load_articles,
+    load_news,
+    load_publish_log,
+    upsert_news,
+)
+from sources.newsnow import FALLBACK_API_URL, check_newsnow_health
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -72,7 +63,8 @@ async def _wait_for_newsnow():
         elapsed += NEWSNOW_WAIT_INTERVAL
     logger.warning(
         "NewsNow not ready after %ds, will use fallback: %s",
-        NEWSNOW_WAIT_TIMEOUT, FALLBACK_API_URL,
+        NEWSNOW_WAIT_TIMEOUT,
+        FALLBACK_API_URL,
     )
 
 
@@ -84,8 +76,9 @@ async def lifespan(app: FastAPI):
     await init_db()
 
     # 初始化记忆数据库
-    from core.checkpointer import init_db as init_memory_db
     from config import MEMORY_DB_PATH
+    from core.checkpointer import init_db as init_memory_db
+
     init_memory_db(MEMORY_DB_PATH)
 
     persisted_news = await load_news()
@@ -134,6 +127,7 @@ async def lifespan(app: FastAPI):
             _d.rss_interval,
         )
         from api.schedule import _newsnow_crawl_loop, _rss_crawl_loop
+
         asyncio.create_task(_newsnow_crawl_loop())
         asyncio.create_task(_rss_crawl_loop())
 
@@ -166,5 +160,7 @@ app.include_router(conversations_router)
 
 if __name__ == "__main__":
     import uvicorn
+
     from config import HOST, PORT
+
     uvicorn.run("app:app", host=HOST, port=PORT, reload=True, loop="asyncio")

@@ -7,7 +7,6 @@ import json
 import logging
 import re
 from collections import Counter
-from datetime import datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
@@ -15,10 +14,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from config import NEWS_SOURCES
+from core.interpreter import NewsInterpreter
+from core.style_manager import build_prompt_display_text, prompt_manager
+
 from . import deps
 from .interpret import LIMITED_CONTENT_MSG
-from core.interpreter import NewsInterpreter
-from core.style_manager import StyleType, prompt_manager, build_prompt_display_text
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -26,35 +26,196 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 # ── Keyword Extraction ─────────────────────────────────────────
 
+
 def _extract_keywords(text: str, top_n: int = 30) -> list[tuple[str, int]]:
     """Extract top keywords from text using simple N-gram frequency."""
     stop_words = {
-        "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一",
-        "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有",
-        "看", "好", "自己", "这", "他", "她", "它", "们", "那", "被", "从", "把",
-        "对", "与", "为", "而", "或", "但", "如果", "因为", "所以", "可以", "已经",
-        "将", "让", "被", "还", "又", "等", "之", "中", "其", "所", "以", "于",
-        "及", "更", "最", "该", "此", "每", "各", "同", "则", "此", "该",
-        "日电", "亿元", "万元", "公司", "市场", "目前", "相关", "情况", "方面",
-        "今日", "报道", "消息", "数据显示", "财联社",
-        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "could",
-        "should", "may", "might", "can", "shall", "to", "of", "in", "for",
-        "on", "with", "at", "by", "from", "as", "into", "through", "during",
-        "before", "after", "above", "below", "between", "and", "but", "or",
-        "not", "no", "nor", "so", "if", "than", "too", "very", "just",
-        "https", "http", "com", "url", "www", "article", "comments",
-        "how", "its", "new", "use", "using", "about", "your", "more",
-        "all", "also", "one", "our", "out", "up", "own", "any", "some",
-        "which", "their", "there", "than", "then", "only", "other", "over",
-        "such", "what", "when", "who", "will", "self", "hosted", "points",
-        "show", "daily", "post", "home", "like", "well", "into", "made",
+        "的",
+        "了",
+        "在",
+        "是",
+        "我",
+        "有",
+        "和",
+        "就",
+        "不",
+        "人",
+        "都",
+        "一",
+        "一个",
+        "上",
+        "也",
+        "很",
+        "到",
+        "说",
+        "要",
+        "去",
+        "你",
+        "会",
+        "着",
+        "没有",
+        "看",
+        "好",
+        "自己",
+        "这",
+        "他",
+        "她",
+        "它",
+        "们",
+        "那",
+        "被",
+        "从",
+        "把",
+        "对",
+        "与",
+        "为",
+        "而",
+        "或",
+        "但",
+        "如果",
+        "因为",
+        "所以",
+        "可以",
+        "已经",
+        "将",
+        "让",
+        "还",
+        "又",
+        "等",
+        "之",
+        "中",
+        "其",
+        "所",
+        "以",
+        "于",
+        "及",
+        "更",
+        "最",
+        "该",
+        "此",
+        "每",
+        "各",
+        "同",
+        "则",
+        "日电",
+        "亿元",
+        "万元",
+        "公司",
+        "市场",
+        "目前",
+        "相关",
+        "情况",
+        "方面",
+        "今日",
+        "报道",
+        "消息",
+        "数据显示",
+        "财联社",
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "can",
+        "shall",
+        "to",
+        "of",
+        "in",
+        "for",
+        "on",
+        "with",
+        "at",
+        "by",
+        "from",
+        "as",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "between",
+        "and",
+        "but",
+        "or",
+        "not",
+        "no",
+        "nor",
+        "so",
+        "if",
+        "than",
+        "too",
+        "very",
+        "just",
+        "https",
+        "http",
+        "com",
+        "url",
+        "www",
+        "article",
+        "comments",
+        "how",
+        "its",
+        "new",
+        "use",
+        "using",
+        "about",
+        "your",
+        "more",
+        "all",
+        "also",
+        "one",
+        "our",
+        "out",
+        "up",
+        "own",
+        "any",
+        "some",
+        "which",
+        "their",
+        "there",
+        "then",
+        "only",
+        "other",
+        "over",
+        "such",
+        "what",
+        "when",
+        "who",
+        "self",
+        "hosted",
+        "points",
+        "show",
+        "daily",
+        "post",
+        "home",
+        "like",
+        "well",
+        "made",
     }
 
-    cleaned = re.sub(r'https?://\S+', '', text)
-    cleaned = re.sub(r'\bArticle URL:\b|\bComments URL:\b', '', cleaned)
+    cleaned = re.sub(r"https?://\S+", "", text)
+    cleaned = re.sub(r"\bArticle URL:\b|\bComments URL:\b", "", cleaned)
 
-    words = re.findall(r'[\u4e00-\u9fff]{2,6}|[a-zA-Z]{4,}', cleaned.lower())
+    words = re.findall(r"[\u4e00-\u9fff]{2,6}|[a-zA-Z]{4,}", cleaned.lower())
     filtered = [w for w in words if w not in stop_words]
     return Counter(filtered).most_common(top_n)
 
@@ -105,10 +266,13 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
             new_items = [item.to_dict() for item in filtered]
             deps.news_store.extend(new_items)
             await deps.upsert_news(new_items)
-        return json.dumps({
-            "total_news": len(deps.news_store),
-            "source_results": results,
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "total_news": len(deps.news_store),
+                "source_results": results,
+            },
+            ensure_ascii=False,
+        )
 
     @tool
     async def refresh_source(source: str) -> str:
@@ -119,6 +283,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         elif any(feed.id == source for feed in deps.DEFAULT_RSS_FEEDS):
             feed = next(f for f in deps.DEFAULT_RSS_FEEDS if f.id == source)
             from sources.rss import RSSCrawler
+
             crawler = RSSCrawler(feed)
             items = await crawler.crawl()
         else:
@@ -144,10 +309,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         if not deps.news_store:
             return "当前没有新闻数据，请先调用 refresh_news 刷新新闻。"
 
-        all_text = " ".join(
-            f"{n.get('title', '')} {n.get('summary', '')}"
-            for n in deps.news_store
-        )
+        all_text = " ".join(f"{n.get('title', '')} {n.get('summary', '')}" for n in deps.news_store)
         keywords = _extract_keywords(all_text, top_n=top_n * 3)
 
         trends = []
@@ -158,24 +320,30 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
                 if kw in f"{n.get('title', '')} {n.get('summary', '')}".lower()
             ]
             sources = set(n.get("source", "") for n in related)
-            trends.append({
-                "keyword": kw,
-                "count": count,
-                "source_count": len(sources),
-                "related_titles": [r["title"] for r in related[:3]],
-            })
+            trends.append(
+                {
+                    "keyword": kw,
+                    "count": count,
+                    "source_count": len(sources),
+                    "related_titles": [r["title"] for r in related[:3]],
+                }
+            )
 
-        return json.dumps({
-            "total_news": len(deps.news_store),
-            "trends": trends,
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "total_news": len(deps.news_store),
+                "trends": trends,
+            },
+            ensure_ascii=False,
+        )
 
     @tool
     async def search_news(keyword: str) -> str:
         """根据关键词搜索新闻。当用户要搜索、查找特定话题的新闻时调用。"""
         kw = keyword.lower().strip()
         results = [
-            n for n in deps.news_store
+            n
+            for n in deps.news_store
             if kw in f"{n.get('title', '')} {n.get('summary', '')} {n.get('content', '')}".lower()
         ]
         if not results:
@@ -191,10 +359,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
     async def compare_sources(keyword: str) -> str:
         """对比不同新闻源对同一话题的报道。当用户要求对比、比较不同媒体的观点时调用。返回各来源相关新闻供你分析差异。"""
         kw = keyword.lower().strip()
-        matched = [
-            n for n in deps.news_store
-            if kw in f"{n.get('title', '')} {n.get('summary', '')}".lower()
-        ]
+        matched = [n for n in deps.news_store if kw in f"{n.get('title', '')} {n.get('summary', '')}".lower()]
         if not matched:
             return f"未找到与「{keyword}」相关的新闻。"
 
@@ -209,12 +374,15 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
             titles_text = "\n".join(f"- {t}" for t in titles[:5])
             sections.append(f"### {src_label}（{len(titles)} 条）\n{titles_text}")
 
-        return json.dumps({
-            "keyword": keyword,
-            "matched_count": len(matched),
-            "sources": list(by_source.keys()),
-            "by_source": sections,
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "keyword": keyword,
+                "matched_count": len(matched),
+                "sources": list(by_source.keys()),
+                "by_source": sections,
+            },
+            ensure_ascii=False,
+        )
 
     @tool
     async def get_news_content() -> str:
@@ -245,10 +413,12 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         for n in deps.news_store:
             src = n.get("source", "")
             src_label = NEWS_SOURCES.get(src, src)
-            by_source.setdefault(src_label, []).append({
-                "title": n.get("title", ""),
-                "summary": n.get("summary", ""),
-            })
+            by_source.setdefault(src_label, []).append(
+                {
+                    "title": n.get("title", ""),
+                    "summary": n.get("summary", ""),
+                }
+            )
 
         sections = []
         for src_label, items in by_source.items():
@@ -260,16 +430,20 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
                 lines.append(line)
             sections.append(f"### {src_label}（{len(items)} 条）\n" + "\n".join(lines))
 
-        return json.dumps({
-            "total_news": len(deps.news_store),
-            "sources": len(by_source),
-            "data": "\n\n".join(sections),
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "total_news": len(deps.news_store),
+                "sources": len(by_source),
+                "data": "\n\n".join(sections),
+            },
+            ensure_ascii=False,
+        )
 
     @tool
     async def search_knowledge_base(query: str, top_k: int = 5) -> str:
         """搜索用户上传的知识库文档，查找与查询最相关的文档片段。当用户提到知识库、文档、资料、上传的文件等内容时调用此工具。"""
         from api.knowledge import kb_search_internal
+
         return await kb_search_internal(query, top_k)
 
     @tool
@@ -301,13 +475,16 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
             deps.article_store.append(article)
             await deps.save_article(article)
 
-        return json.dumps({
-            "article_id": article["article_id"],
-            "title": article.get("title", ""),
-            "style": resolved_style.value,
-            "content_length": len(article.get("content", "")),
-            "message": "文章已生成，article_id 已保存，可用于发布。",
-        }, ensure_ascii=False)
+        return json.dumps(
+            {
+                "article_id": article["article_id"],
+                "title": article.get("title", ""),
+                "style": resolved_style.value,
+                "content_length": len(article.get("content", "")),
+                "message": "文章已生成，article_id 已保存，可用于发布。",
+            },
+            ensure_ascii=False,
+        )
 
     @tool
     async def interpret_news() -> str:
@@ -332,10 +509,22 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         result = await deps.interpreter.interpret(items, style)
         return result
 
-    tools_list = [refresh_news, refresh_source, get_trends, search_news, compare_sources, get_news_content, get_briefing_data, search_knowledge_base, generate_article, interpret_news]
+    tools_list = [
+        refresh_news,
+        refresh_source,
+        get_trends,
+        search_news,
+        compare_sources,
+        get_news_content,
+        get_briefing_data,
+        search_knowledge_base,
+        generate_article,
+        interpret_news,
+    ]
 
     # 联网搜索工具（根据 WEB_SEARCH_ENGINE 配置选择引擎）
     from tools.web_search import get_web_search_tool
+
     web_search_tool = get_web_search_tool()
     if web_search_tool:
         tools_list.append(web_search_tool)
@@ -345,16 +534,14 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
 
 # ── Trends (standalone endpoint for action bar) ────────────────
 
+
 @router.get("/trends")
 async def get_trends(top_n: int = Query(10, ge=1, le=50)):
     """Get trending topics from recent news using keyword frequency."""
     if not deps.news_store:
         return {"trends": [], "total_news": 0}
 
-    all_text = " ".join(
-        f"{n.get('title', '')} {n.get('summary', '')}"
-        for n in deps.news_store
-    )
+    all_text = " ".join(f"{n.get('title', '')} {n.get('summary', '')}" for n in deps.news_store)
 
     keywords = _extract_keywords(all_text, top_n=top_n * 3)
 
@@ -372,17 +559,20 @@ async def get_trends(top_n: int = Query(10, ge=1, le=50)):
         ]
 
         sources = set(n.get("source", "") for n in related)
-        trends.append({
-            "keyword": kw,
-            "count": count,
-            "source_count": len(sources),
-            "related_news": related[:5],
-        })
+        trends.append(
+            {
+                "keyword": kw,
+                "count": count,
+                "source_count": len(sources),
+                "related_news": related[:5],
+            }
+        )
 
     return {"trends": trends, "total_news": len(deps.news_store)}
 
 
 # ── Compare (standalone endpoint for action bar) ───────────────
+
 
 class CompareRequest(BaseModel):
     keyword: str
@@ -396,10 +586,7 @@ async def compare_sources(req: CompareRequest):
     if not keyword:
         raise HTTPException(400, "keyword is required")
 
-    matched = [
-        n for n in deps.news_store
-        if keyword.lower() in f"{n.get('title', '')} {n.get('summary', '')}".lower()
-    ]
+    matched = [n for n in deps.news_store if keyword.lower() in f"{n.get('title', '')} {n.get('summary', '')}".lower()]
 
     if req.sources:
         matched = [n for n in matched if n.get("source") in req.sources]
@@ -433,7 +620,8 @@ async def compare_sources(req: CompareRequest):
 
     interpreter = NewsInterpreter(mock=False)
 
-    from langchain_core.messages import SystemMessage, HumanMessage
+    from langchain_core.messages import HumanMessage, SystemMessage
+
     messages = [SystemMessage(content=prompt_manager.get_system_prompt("interpret")), HumanMessage(content=prompt_text)]
     result = await interpreter.llm.ainvoke(messages)
 
@@ -447,6 +635,7 @@ async def compare_sources(req: CompareRequest):
 
 # ── Search (standalone endpoint for action bar) ────────────────
 
+
 @router.get("/search")
 async def search_news(
     q: str = Query(..., min_length=1),
@@ -457,7 +646,8 @@ async def search_news(
     keyword = q.lower().strip()
 
     results = [
-        n for n in deps.news_store
+        n
+        for n in deps.news_store
         if keyword in f"{n.get('title', '')} {n.get('summary', '')} {n.get('content', '')}".lower()
     ]
 
@@ -472,6 +662,7 @@ async def search_news(
 
 
 # ── Briefing (standalone SSE endpoint for action bar) ──────────
+
 
 @router.post("/briefing/stream")
 async def briefing_stream():
@@ -508,17 +699,24 @@ async def briefing_stream():
     interpreter = NewsInterpreter(mock=False)
 
     async def event_stream():
-        meta = json.dumps({
-            "type": "meta",
-            "total_news": len(deps.news_store),
-            "sources": len(by_source),
-        }, ensure_ascii=False)
+        meta = json.dumps(
+            {
+                "type": "meta",
+                "total_news": len(deps.news_store),
+                "sources": len(by_source),
+            },
+            ensure_ascii=False,
+        )
         yield f"data: {meta}\n\n"
 
         yield f"data: {json.dumps({'type': 'loading', 'message': '正在生成今日简报...'}, ensure_ascii=False)}\n\n"
 
-        from langchain_core.messages import SystemMessage, HumanMessage
-        messages = [SystemMessage(content=prompt_manager.get_system_prompt("interpret")), HumanMessage(content=prompt_text)]
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        messages = [
+            SystemMessage(content=prompt_manager.get_system_prompt("interpret")),
+            HumanMessage(content=prompt_text),
+        ]
 
         async for chunk in interpreter.llm.astream(messages):
             if chunk.content:
@@ -536,6 +734,7 @@ async def briefing_stream():
 
 # ── Agent Chat with Function Calling ──────────────────────────
 
+
 class AgentChatRequest(BaseModel):
     message: str
     news_ids: list[str] = Field(default_factory=list)
@@ -552,7 +751,7 @@ async def agent_chat_stream(req: AgentChatRequest):
     新增 conversation_id 参数支持多轮对话记忆。
     """
     from core.agent_graph import build_agent
-    from core.checkpointer import create_conversation, add_message, get_conversation
+    from core.checkpointer import add_message, create_conversation
 
     tools = _create_tools(req.current_news_id, req.news_ids)
 
@@ -590,6 +789,7 @@ async def agent_chat_stream(req: AgentChatRequest):
         web_search_result = None
         if req.web_search:
             from tools.web_search import get_web_search_tool
+
             ws_tool = get_web_search_tool()
             if ws_tool:
                 yield f"data: {json.dumps({'type': 'loading', 'message': '正在联网搜索...'}, ensure_ascii=False)}\n\n"
@@ -695,6 +895,7 @@ async def agent_chat_stream(req: AgentChatRequest):
 
 # ── Execute Site Actions ──────────────────────────────────────
 
+
 class ExecuteRequest(BaseModel):
     action: str
     source: str | None = None
@@ -742,6 +943,7 @@ async def execute_action(req: ExecuteRequest):
         elif any(feed.id == source for feed in deps.DEFAULT_RSS_FEEDS):
             feed = next(f for f in deps.DEFAULT_RSS_FEEDS if f.id == source)
             from sources.rss import RSSCrawler
+
             crawler = RSSCrawler(feed)
             items = await crawler.crawl()
         else:

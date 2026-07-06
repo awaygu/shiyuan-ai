@@ -33,7 +33,9 @@ class GenerateArticleRequest(BaseModel):
     prompt: str | None = None
 
 
-LIMITED_CONTENT_MSG = "该新闻原文为动态加载内容，无法自动获取正文。请在详情中点击「新窗口打开」查看原文，获取足够信息后再进行解读。"
+LIMITED_CONTENT_MSG = (
+    "该新闻原文为动态加载内容，无法自动获取正文。请在详情中点击「新窗口打开」查看原文，获取足够信息后再进行解读。"
+)
 
 
 def _check_limited_items(items: list[dict]) -> list[str]:
@@ -168,13 +170,16 @@ async def generate_article_stream(req: GenerateArticleRequest):
     article_id = f"art_{uuid4().hex[:12]}"
 
     async def event_stream():
-        meta = json.dumps({
-            "type": "meta",
-            "article_id": article_id,
-            "title": req.title,
-            "style": style.value,
-            "news_ids": [n.get("news_id") for n in items],
-        }, ensure_ascii=False)
+        meta = json.dumps(
+            {
+                "type": "meta",
+                "article_id": article_id,
+                "title": req.title,
+                "style": style.value,
+                "news_ids": [n.get("news_id") for n in items],
+            },
+            ensure_ascii=False,
+        )
         yield f"data: {meta}\n\n"
 
         yield f"data: {json.dumps({'type': 'loading', 'message': '正在获取原文内容...'}, ensure_ascii=False)}\n\n"

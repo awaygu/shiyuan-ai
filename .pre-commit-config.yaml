@@ -1,0 +1,39 @@
+default_language_version:
+  python: python3.11
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff lint (server)
+        entry: bash
+        language: system
+        files: ^server/
+        types: [python]
+        args: [-c, 'cd server && source venv/Scripts/activate && ruff check . --fix --exit-non-zero-on-fix']
+      - id: ruff-format
+        name: ruff format (server)
+        entry: bash
+        language: system
+        files: ^server/
+        types: [python]
+        args: [-c, 'cd server && source venv/Scripts/activate && ruff format --check .']
+      - id: mypy
+        name: mypy (server)
+        entry: bash
+        language: system
+        files: ^server/
+        types: [python]
+        args: [-c, 'cd server && source venv/Scripts/activate && mypy --config-file pyproject.toml .']
+      - id: eslint
+        name: eslint (web)
+        entry: bash
+        language: system
+        pass_filenames: false
+        args: [-c, 'cd web && npm run lint']
+      - id: prettier
+        name: prettier (web)
+        entry: bash
+        language: system
+        pass_filenames: false
+        args: [-c, 'cd web && npm run format:check']

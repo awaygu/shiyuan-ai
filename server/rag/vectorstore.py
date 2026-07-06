@@ -6,12 +6,10 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any, Sequence
 
-import aiosqlite
 import numpy as np
 
-from config import UPLOAD_DIR, KB_EMBEDDING_DIM
+from config import KB_EMBEDDING_DIM, UPLOAD_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +40,7 @@ class FAISSVectorStore:
             if self._index_path.exists() and self._idmap_path.exists():
                 self.index = faiss.read_index(str(self._index_path))
                 self.id_map = json.loads(self._idmap_path.read_text("utf-8"))
-                logger.info(
-                    "Loaded FAISS index for KB %s: %d vectors", self.kb_id, self.index.ntotal
-                )
+                logger.info("Loaded FAISS index for KB %s: %d vectors", self.kb_id, self.index.ntotal)
             else:
                 self.index = faiss.IndexFlatIP(self.dim)
                 self.id_map = []
@@ -67,12 +63,8 @@ class FAISSVectorStore:
             self._index_path.parent.mkdir(parents=True, exist_ok=True)
             faiss.write_index(self.index, str(self._index_path))
         self._idmap_path.parent.mkdir(parents=True, exist_ok=True)
-        self._idmap_path.write_text(
-            json.dumps(self.id_map, ensure_ascii=False), encoding="utf-8"
-        )
-        self._chunk_doc_path.write_text(
-            json.dumps(self.chunk_doc_map, ensure_ascii=False), encoding="utf-8"
-        )
+        self._idmap_path.write_text(json.dumps(self.id_map, ensure_ascii=False), encoding="utf-8")
+        self._chunk_doc_path.write_text(json.dumps(self.chunk_doc_map, ensure_ascii=False), encoding="utf-8")
 
     def add(self, chunk_ids: list[str], vectors: list[list[float]], doc_id: str = ""):
         self._ensure_loaded()
@@ -106,10 +98,7 @@ class FAISSVectorStore:
 
         if doc_ids is not None:
             target_doc_set = set(doc_ids)
-            target_indices = [
-                i for i, cid in enumerate(self.id_map)
-                if self.chunk_doc_map.get(cid) in target_doc_set
-            ]
+            target_indices = [i for i, cid in enumerate(self.id_map) if self.chunk_doc_map.get(cid) in target_doc_set]
             if not target_indices:
                 return []
 
@@ -117,7 +106,11 @@ class FAISSVectorStore:
                 all_vecs = self.index.reconstruct_n(0, self.index.ntotal)
                 subset_vecs = np.array([all_vecs[i] for i in target_indices], dtype=np.float32)
             else:
-                all_vecs = np.array(self._vectors, dtype=np.float32) if hasattr(self, '_vectors') else np.array([], dtype=np.float32)
+                all_vecs = (
+                    np.array(self._vectors, dtype=np.float32)
+                    if hasattr(self, "_vectors")
+                    else np.array([], dtype=np.float32)
+                )
                 if len(all_vecs) == 0:
                     return []
                 subset_vecs = all_vecs[target_indices]
@@ -138,7 +131,11 @@ class FAISSVectorStore:
                     results.append((self.id_map[idx], float(score)))
             return results
         else:
-            all_vecs = np.array(self._vectors, dtype=np.float32) if hasattr(self, '_vectors') else np.array([], dtype=np.float32)
+            all_vecs = (
+                np.array(self._vectors, dtype=np.float32)
+                if hasattr(self, "_vectors")
+                else np.array([], dtype=np.float32)
+            )
             if len(all_vecs) == 0:
                 return []
             scores = np.dot(all_vecs, q[0])
@@ -147,9 +144,7 @@ class FAISSVectorStore:
 
     def remove_by_doc(self, chunk_ids: set[str]):
         self._ensure_loaded()
-        keep_indices = [
-            i for i, cid in enumerate(self.id_map) if cid not in chunk_ids
-        ]
+        keep_indices = [i for i, cid in enumerate(self.id_map) if cid not in chunk_ids]
         if not keep_indices:
             self._rebuild_empty()
             return
@@ -158,9 +153,7 @@ class FAISSVectorStore:
             import faiss
 
             keep_vecs = self.index.reconstruct_n(0, self.index.ntotal)
-            keep_vecs = np.array(
-                [keep_vecs[i] for i in keep_indices], dtype=np.float32
-            )
+            keep_vecs = np.array([keep_vecs[i] for i in keep_indices], dtype=np.float32)
             self.id_map = [self.id_map[i] for i in keep_indices]
             self.index = faiss.IndexFlatIP(self.dim)
             if len(keep_vecs) > 0:
@@ -202,6 +195,7 @@ class VectorStoreManager:
         """Lazy init BM25 manager to avoid circular imports at module level."""
         if self._bm25_manager is None:
             from rag.bm25_index import BM25IndexManager
+
             self._bm25_manager = BM25IndexManager()
         return self._bm25_manager
 

@@ -7,11 +7,12 @@ import json
 import logging
 import re
 import time
-from typing import Any
 
 import httpx
 
-from .base import BasePublisher, PublishResult, NeedLoginError
+from core.image_generator import Section
+
+from .base import BasePublisher, PublishResult
 from .image_archive import archive_key, try_read_archive_bytes, write_archive
 
 logger = logging.getLogger(__name__)
@@ -68,9 +69,9 @@ class WechatTokenManager:
     async def upload_image(self, image_url: str) -> str:
         token = await self.get_token()
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            img_resp = await client.get(image_url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            })
+            img_resp = await client.get(
+                image_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            )
             img_resp.raise_for_status()
             content_type = img_resp.headers.get("content-type", "image/jpeg")
             ext = "jpg" if "jpeg" in content_type or "jpg" in content_type else "png"
@@ -86,9 +87,7 @@ class WechatTokenManager:
                 raise WechatApiError(data.get("errcode", 0), data.get("errmsg", "upload failed"))
             return data["url"]
 
-    async def upload_image_from_bytes(
-        self, image_bytes: bytes, content_type: str = "image/png"
-    ) -> str:
+    async def upload_image_from_bytes(self, image_bytes: bytes, content_type: str = "image/png") -> str:
         token = await self.get_token()
         ext = "png" if "png" in content_type else "jpg"
         filename = f"image.{ext}"
@@ -170,6 +169,7 @@ class WechatMpPublisher(BasePublisher):
     def __init__(self, app_id: str = "", app_secret: str = ""):
         super().__init__("wechat_mp")
         from config import WECHAT_APP_ID, WECHAT_APP_SECRET
+
         self.app_id = app_id or WECHAT_APP_ID
         self.app_secret = app_secret or WECHAT_APP_SECRET
         self.token_manager = WechatTokenManager(self.app_id, self.app_secret)
@@ -200,6 +200,7 @@ class WechatMpPublisher(BasePublisher):
 
     async def upload_thumb(self, token: str, image_bytes: bytes | None = None) -> str:
         from io import BytesIO
+
         from PIL import Image
 
         if image_bytes is None:
@@ -262,7 +263,8 @@ class WechatMpPublisher(BasePublisher):
         thumb_media_id = ""
         if generate_cover:
             try:
-                from config import IMAGE_GEN_ENABLED, DASHSCOPE_API_KEY, IMAGE_GEN_MODEL
+                from config import DASHSCOPE_API_KEY, IMAGE_GEN_ENABLED, IMAGE_GEN_MODEL
+
                 if IMAGE_GEN_ENABLED and DASHSCOPE_API_KEY:
                     cover_key = archive_key("cover", title)
                     cover_bytes = try_read_archive_bytes(cover_key)
@@ -270,6 +272,7 @@ class WechatMpPublisher(BasePublisher):
                         await _progress("复用已存档的封面图...")
                     else:
                         from core.image_generator import ImageGenerator
+
                         gen = ImageGenerator(DASHSCOPE_API_KEY, IMAGE_GEN_MODEL)
                         await _progress("正在生成 AI 封面图...")
                         cover_bytes = await gen.generate_cover_image(title, content)
@@ -289,7 +292,7 @@ class WechatMpPublisher(BasePublisher):
         await _progress("正在转换文章格式...")
         html_content = markdown_to_wechat_html(content)
 
-        img_pattern = re.compile(r'!\[.*?\]\((https?://[^\s)]+)\)')
+        img_pattern = re.compile(r"!\[.*?\]\((https?://[^\s)]+)\)")
         img_urls = img_pattern.findall(content)
         if img_urls:
             await _progress("正在转存文章图片...")
@@ -302,9 +305,11 @@ class WechatMpPublisher(BasePublisher):
 
         if generate_inline_images:
             try:
-                from config import IMAGE_GEN_ENABLED, DASHSCOPE_API_KEY, IMAGE_GEN_MODEL
+                from config import DASHSCOPE_API_KEY, IMAGE_GEN_ENABLED, IMAGE_GEN_MODEL
+
                 if IMAGE_GEN_ENABLED and DASHSCOPE_API_KEY:
                     from core.image_generator import ImageGenerator, split_by_headings
+
                     gen = ImageGenerator(DASHSCOPE_API_KEY, IMAGE_GEN_MODEL)
                     sections = split_by_headings(content)
                     if sections:
@@ -321,11 +326,10 @@ class WechatMpPublisher(BasePublisher):
                                 to_generate.append((i, s, inline_key))
 
                         if to_generate:
-                            await _progress(f"正在生成 {len(to_generate)} 张正文插图（{len(sections)} 节，复用 {len(sections) - len(to_generate)} 张）...")
-                            gen_tasks = [
-                                gen.generate_section_image(s.title, s.text)
-                                for _, s, _ in to_generate
-                            ]
+                            await _progress(
+                                f"正在生成 {len(to_generate)} 张正文插图（{len(sections)} 节，复用 {len(sections) - len(to_generate)} 张）..."
+                            )
+                            gen_tasks = [gen.generate_section_image(s.title, s.text) for _, s, _ in to_generate]
                             gen_results = await asyncio.gather(*gen_tasks, return_exceptions=True)
                             for (idx, _, key), result in zip(to_generate, gen_results):
                                 if isinstance(result, Exception):
@@ -337,7 +341,7 @@ class WechatMpPublisher(BasePublisher):
                         else:
                             await _progress(f"复用全部 {len(sections)} 张正文插图...")
 
-                        heading_pattern = re.compile(r'^(<h[23]>.*?</h[23]>)', re.MULTILINE)
+                        heading_pattern = re.compile(r"^(<h[23]>.*?</h[23]>)", re.MULTILINE)
                         parts = heading_pattern.split(html_content)
                         section_idx = 0
                         new_parts: list[str] = []
@@ -348,7 +352,9 @@ class WechatMpPublisher(BasePublisher):
                                 if isinstance(img, bytes):
                                     try:
                                         wechat_url = await self.token_manager.upload_image_from_bytes(img)
-                                        new_parts.append(f'<p><img src="{wechat_url}" style="max-width:100%;border-radius:8px;margin:8px 0;"/></p>')
+                                        new_parts.append(
+                                            f'<p><img src="{wechat_url}" style="max-width:100%;border-radius:8px;margin:8px 0;"/></p>'
+                                        )
                                     except Exception as e:
                                         logger.warning("Failed to upload section image: %s", e)
                                 section_idx += 1
@@ -380,7 +386,13 @@ class WechatMpPublisher(BasePublisher):
             ]
         }
         body_bytes = json.dumps(draft_body, ensure_ascii=False).encode("utf-8")
-        logger.info("WeChat draft body title: repr=%s, len=%d, utf8_bytes=%d, json_body_bytes=%d", repr(clean_title), len(clean_title), len(clean_title.encode("utf-8")), len(body_bytes))
+        logger.info(
+            "WeChat draft body title: repr=%s, len=%d, utf8_bytes=%d, json_body_bytes=%d",
+            repr(clean_title),
+            len(clean_title),
+            len(clean_title.encode("utf-8")),
+            len(body_bytes),
+        )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(

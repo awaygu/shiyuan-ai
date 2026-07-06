@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 
-import aiosqlite
 from langchain.agents import create_agent
 from langchain.agents.middleware import SummarizationMiddleware
 from langchain_openai import ChatOpenAI
@@ -20,14 +19,14 @@ from config import (
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MODEL,
+    MEMORY_DB_PATH,
+    SUMMARY_KEEP_MESSAGES,
     SUMMARY_MODEL,
-    SUMMARY_MODEL_BASE_URL,
     SUMMARY_MODEL_API_KEY,
+    SUMMARY_MODEL_BASE_URL,
+    SUMMARY_TRIGGER_TOKENS,
     TEMPERATURE_ANALYZE,
     TEMPERATURE_SUMMARY,
-    SUMMARY_TRIGGER_TOKENS,
-    SUMMARY_KEEP_MESSAGES,
-    MEMORY_DB_PATH,
 )
 
 logger = logging.getLogger(__name__)

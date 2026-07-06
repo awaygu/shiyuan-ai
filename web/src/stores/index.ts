@@ -1,6 +1,16 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { NewsItem, Article, PublishRecord, StyleType, KBDoc, KnowledgeBase, KBConversation, KBMessage, AsyncTask } from '@/types'
+import type {
+  NewsItem,
+  Article,
+  PublishRecord,
+  StyleType,
+  KBDoc,
+  KnowledgeBase,
+  KBConversation,
+  KBMessage,
+  AsyncTask,
+} from '@/types'
 import type { KeywordGroup } from '@/api'
 import {
   fetchNews,
@@ -51,7 +61,7 @@ export const useNewsStore = defineStore('news', () => {
   const rssFeeds = ref<{ id: string; name: string; url: string; enabled: boolean }[]>([])
 
   const selectedNews = computed(() =>
-    newsItems.value.filter((n) => selectedNewsIds.value.includes(n.news_id))
+    newsItems.value.filter(n => selectedNewsIds.value.includes(n.news_id))
   )
 
   const sourceCategories = computed(() => {
@@ -83,8 +93,8 @@ export const useNewsStore = defineStore('news', () => {
     try {
       await refreshNewsSource(currentSource.value)
       const { items } = await fetchNews(currentSource.value, 0, 100)
-      const existingIds = new Set(newsItems.value.map((n) => n.news_id))
-      const newItems = items.filter((n) => !existingIds.has(n.news_id))
+      const existingIds = new Set(newsItems.value.map(n => n.news_id))
+      const newItems = items.filter(n => !existingIds.has(n.news_id))
       if (newItems.length > 0) {
         newsItems.value.push(...newItems)
       }
@@ -148,7 +158,11 @@ export const useNewsStore = defineStore('news', () => {
     }
   }
 
-  async function publish(articleId: string, platform: string, imageOptions?: { generate_cover?: boolean; generate_inline_images?: boolean }): Promise<{ task_id: string; status: string }> {
+  async function publish(
+    articleId: string,
+    platform: string,
+    imageOptions?: { generate_cover?: boolean; generate_inline_images?: boolean }
+  ): Promise<PublishRecord & { need_login?: boolean }> {
     const res = await publishArticle(articleId, platform, imageOptions)
     startTaskStream()
     showTaskPanel.value = true
@@ -274,7 +288,9 @@ export const useNewsStore = defineStore('news', () => {
     }
   }
 
-  const runningTaskCount = computed(() => tasks.value.filter(t => t.status === 'pending' || t.status === 'running').length)
+  const runningTaskCount = computed(
+    () => tasks.value.filter(t => t.status === 'pending' || t.status === 'running').length
+  )
 
   // ── Knowledge Base List ────────────────────────────────────────
 
@@ -360,7 +376,10 @@ export const useNewsStore = defineStore('news', () => {
       await loadKBDocuments(id)
       return { results, errors }
     } catch (e: any) {
-      return { results: [] as any[], errors: [{ filename: '', detail: e.message || '上传请求失败' }] as any[] }
+      return {
+        results: [] as any[],
+        errors: [{ filename: '', detail: e.message || '上传请求失败' }] as any[],
+      }
     } finally {
       kbUploading.value = false
     }
@@ -433,7 +452,14 @@ export const useNewsStore = defineStore('news', () => {
     return await fetchKBMessages(id, convId)
   }
 
-  async function saveConvMessage(convId: string, role: string, content: string, type = 'chat', sources: any[] = [], kbId?: string) {
+  async function saveConvMessage(
+    convId: string,
+    role: string,
+    content: string,
+    type = 'chat',
+    sources: any[] = [],
+    kbId?: string
+  ) {
     const id = kbId || currentKB.value?.kb_id
     if (!id) return
     await saveKBMessage(id, convId, role, content, type, sources)

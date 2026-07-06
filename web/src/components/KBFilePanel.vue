@@ -5,7 +5,15 @@
       <div class="panel-header-right">
         <span class="stat">{{ store.kbDocuments.length }} 文件</span>
         <button class="collapse-btn" title="收起侧栏" @click="$emit('collapse')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 19L8 12L15 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M15 19L8 12L15 5"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
         </button>
       </div>
     </div>
@@ -36,60 +44,91 @@
           @click="toggleResultsCollapsed"
         >
           <span class="collapse-chevron" :class="{ collapsed: resultsCollapsed }">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M6 9L12 15L18 9"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
           </span>
           <span class="collapse-title">搜索结果</span>
           <span class="collapse-count">{{ searchResults.length }} 条</span>
-          <span v-if="resultsCollapsed" class="collapse-summary">已选 {{ selectedResultIds.length }} · 点击展开</span>
+          <span v-if="resultsCollapsed" class="collapse-summary"
+            >已选 {{ selectedResultIds.length }} · 点击展开</span
+          >
         </button>
         <div v-show="!resultsCollapsed" class="results-body">
-        <div class="results-toolbar">
-          <el-checkbox
-            :model-value="selectedResultIds.length === searchResults.length"
-            :indeterminate="selectedResultIds.length > 0 && selectedResultIds.length < searchResults.length"
-            @change="onSelectAllResults"
-          >全选</el-checkbox>
-          <span class="results-count">已选 {{ selectedResultIds.length }}/{{ searchResults.length }}</span>
-          <button class="ingest-btn" :disabled="selectedResultIds.length === 0 || ingesting" @click="onIngest">
-            <el-icon v-if="ingesting" class="is-loading"><Loading /></el-icon>
-            <span>{{ ingesting ? '入库中' : `加入知识库 (${selectedResultIds.length})` }}</span>
-          </button>
-          <button class="clear-results-btn" title="清空搜索结果" @click="clearSearchResults">清空</button>
-        </div>
-
-        <div class="result-list">
-          <div
-            v-for="(r, idx) in searchResults"
-            :key="idx"
-            class="result-card"
-            :class="{ expanded: expandedResultIdx === idx, selected: selectedResultIds.includes(idx) }"
-          >
+          <div class="results-toolbar">
             <el-checkbox
-              :model-value="selectedResultIds.includes(idx)"
-              @change="toggleResultSelection(idx)"
-              class="result-check"
-            />
-            <div class="result-main">
-              <div class="result-title-row">
-                <input
-                  v-model="r.title"
-                  class="result-title-input"
-                  placeholder="标题"
-                />
-                <a v-if="r.url" :href="r.url" target="_blank" rel="noopener" class="result-url" :title="r.url">来源 ↗</a>
+              :model-value="selectedResultIds.length === searchResults.length"
+              :indeterminate="
+                selectedResultIds.length > 0 && selectedResultIds.length < searchResults.length
+              "
+              @change="onSelectAllResults"
+              >全选</el-checkbox
+            >
+            <span class="results-count"
+              >已选 {{ selectedResultIds.length }}/{{ searchResults.length }}</span
+            >
+            <button
+              class="ingest-btn"
+              :disabled="selectedResultIds.length === 0 || ingesting"
+              @click="onIngest"
+            >
+              <el-icon v-if="ingesting" class="is-loading"><Loading /></el-icon>
+              <span>{{ ingesting ? '入库中' : `加入知识库 (${selectedResultIds.length})` }}</span>
+            </button>
+            <button class="clear-results-btn" title="清空搜索结果" @click="clearSearchResults">
+              清空
+            </button>
+          </div>
+
+          <div class="result-list">
+            <div
+              v-for="(r, idx) in searchResults"
+              :key="idx"
+              class="result-card"
+              :class="{
+                expanded: expandedResultIdx === idx,
+                selected: selectedResultIds.includes(idx),
+              }"
+            >
+              <el-checkbox
+                :model-value="selectedResultIds.includes(idx)"
+                @change="toggleResultSelection(idx)"
+                class="result-check"
+              />
+              <div class="result-main">
+                <div class="result-title-row">
+                  <input v-model="r.title" class="result-title-input" placeholder="标题" />
+                  <a
+                    v-if="r.url"
+                    :href="r.url"
+                    target="_blank"
+                    rel="noopener"
+                    class="result-url"
+                    :title="r.url"
+                    >来源 ↗</a
+                  >
+                </div>
+                <textarea
+                  v-model="r.content"
+                  class="result-content-input"
+                  :rows="expandedResultIdx === idx ? 10 : 5"
+                  placeholder="内容"
+                ></textarea>
+                <button
+                  class="expand-btn"
+                  @click="expandedResultIdx = expandedResultIdx === idx ? -1 : idx"
+                >
+                  {{ expandedResultIdx === idx ? '收起' : '展开编辑' }}
+                </button>
               </div>
-              <textarea
-                v-model="r.content"
-                class="result-content-input"
-                :rows="expandedResultIdx === idx ? 10 : 5"
-                placeholder="内容"
-              ></textarea>
-              <button class="expand-btn" @click="expandedResultIdx = expandedResultIdx === idx ? -1 : idx">
-                {{ expandedResultIdx === idx ? '收起' : '展开编辑' }}
-              </button>
             </div>
           </div>
-        </div>
         </div>
       </div>
     </div>
@@ -120,10 +159,16 @@
     <div v-if="store.kbDocuments.length > 0" class="select-bar">
       <el-checkbox
         :model-value="store.kbSelectedDocIds.length === store.kbDocuments.length"
-        :indeterminate="store.kbSelectedDocIds.length > 0 && store.kbSelectedDocIds.length < store.kbDocuments.length"
+        :indeterminate="
+          store.kbSelectedDocIds.length > 0 &&
+          store.kbSelectedDocIds.length < store.kbDocuments.length
+        "
         @change="onSelectAll"
-      >全选</el-checkbox>
-      <span class="select-count">已选 {{ store.kbSelectedDocIds.length }}/{{ store.kbDocuments.length }}</span>
+        >全选</el-checkbox
+      >
+      <span class="select-count"
+        >已选 {{ store.kbSelectedDocIds.length }}/{{ store.kbDocuments.length }}</span
+      >
     </div>
 
     <div class="doc-list">
@@ -135,7 +180,10 @@
         v-for="doc in store.kbDocuments"
         :key="doc.doc_id"
         class="doc-card"
-        :class="{ selected: store.kbSelectedDocIds.includes(doc.doc_id), expanded: expandedDocId === doc.doc_id }"
+        :class="{
+          selected: store.kbSelectedDocIds.includes(doc.doc_id),
+          expanded: expandedDocId === doc.doc_id,
+        }"
       >
         <el-checkbox
           :model-value="store.kbSelectedDocIds.includes(doc.doc_id)"
@@ -156,7 +204,13 @@
             />
           </template>
           <template v-else>
-            <div class="doc-name" :title="doc.filename" @dblclick.stop="startRename(doc.doc_id, doc.filename)">{{ doc.filename }}</div>
+            <div
+              class="doc-name"
+              :title="doc.filename"
+              @dblclick.stop="startRename(doc.doc_id, doc.filename)"
+            >
+              {{ doc.filename }}
+            </div>
           </template>
           <div class="doc-meta">
             <span>{{ formatSize(doc.file_size) }}</span>
@@ -200,11 +254,13 @@ import { webSearchKB, ingestTextToKB, type WebSearchItem } from '@/api'
 const props = defineProps<{ kbId: string }>()
 defineEmits<{ collapse: [] }>()
 
+import type { InputInstance } from 'element-plus'
+
 const store = useNewsStore()
 
 const editingDocId = ref('')
 const editFilename = ref('')
-const renameInputRef = ref<InstanceType<typeof ElInput> | null>(null)
+const renameInputRef = ref<InputInstance | null>(null)
 const expandedDocId = ref('')
 
 const searchQuery = ref('')
@@ -371,7 +427,11 @@ async function flushUploads() {
 
 async function onDelete(docId: string, filename: string) {
   try {
-    await ElMessageBox.confirm(`确定删除文件「${filename}」？删除后不可恢复。`, '确认删除', { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' })
+    await ElMessageBox.confirm(`确定删除文件「${filename}」？删除后不可恢复。`, '确认删除', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
   } catch {
     return
   }
@@ -717,7 +777,6 @@ function formatSize(bytes: number): string {
 .expand-btn:hover {
   text-decoration: underline;
 }
-
 
 .upload-area :deep(.el-upload-dragger) {
   width: 100%;

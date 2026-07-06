@@ -22,17 +22,28 @@
         </div>
         <div class="task-card-title">{{ task.title }}</div>
         <div v-if="task.status === 'running' && task.progress" class="task-card-progress">
-          <el-icon class="is-loading" style="margin-right:4px"><Loading /></el-icon>
+          <el-icon class="is-loading" style="margin-right: 4px"><Loading /></el-icon>
           {{ task.progress }}
         </div>
-        <div v-if="task.status === 'completed' && !task.result?.error_message" class="task-card-result success">
+        <div
+          v-if="task.status === 'completed' && !task.result?.error_message"
+          class="task-card-result success"
+        >
           发布成功
         </div>
-        <div v-if="task.status === 'completed' && task.result?.error_message" class="task-card-result hint">
+        <div
+          v-if="task.status === 'completed' && task.result?.error_message"
+          class="task-card-result hint"
+        >
           {{ task.result.error_message }}
         </div>
         <div v-if="task.status === 'completed' && task.result?.url" class="task-card-actions">
-          <el-button size="small" type="primary" plain @click="openPlatform(task.result.url, task.platform)">
+          <el-button
+            size="small"
+            type="primary"
+            plain
+            @click="openPlatform(task.result.url, task.platform)"
+          >
             {{ actionLabel(task.platform) }}
           </el-button>
         </div>
@@ -53,22 +64,36 @@ import { computed } from 'vue'
 import { useNewsStore } from '@/stores'
 
 const store = useNewsStore()
-defineEmits<{ 'close': []; 'clear-done': [] }>()
+defineEmits<{ close: []; 'clear-done': [] }>()
 
 const tasks = computed(() => store.tasks)
 
 function platformLabel(platform: string): string {
-  const map: Record<string, string> = { xiaohongshu: '小红书', wechat_mp: '微信公众号', douyin: '抖音' }
+  const map: Record<string, string> = {
+    xiaohongshu: '小红书',
+    wechat_mp: '微信公众号',
+    douyin: '抖音',
+  }
   return map[platform] || platform
 }
 
 function statusLabel(status: string): string {
-  const map: Record<string, string> = { pending: '等待中', running: '进行中', completed: '成功', failed: '失败' }
+  const map: Record<string, string> = {
+    pending: '等待中',
+    running: '进行中',
+    completed: '成功',
+    failed: '失败',
+  }
   return map[status] || status
 }
 
 function statusTagType(status: string): 'info' | 'primary' | 'success' | 'danger' {
-  const map: Record<string, any> = { pending: 'info', running: 'primary', completed: 'success', failed: 'danger' }
+  const map: Record<string, any> = {
+    pending: 'info',
+    running: 'primary',
+    completed: 'success',
+    failed: 'danger',
+  }
   return map[status] || 'info'
 }
 

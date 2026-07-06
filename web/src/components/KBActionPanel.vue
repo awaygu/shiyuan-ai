@@ -12,19 +12,31 @@
       <div class="style-section">
         <div class="section-label">选择风格生成文章</div>
 
-        <button class="style-btn style-xiaohongshu" @click="onGenerate('xiaohongshu')" :disabled="generating || noDocs">
+        <button
+          class="style-btn style-xiaohongshu"
+          @click="onGenerate('xiaohongshu')"
+          :disabled="generating || noDocs"
+        >
           <span class="style-emoji">✨</span>
           <span class="style-name">小红书</span>
           <span class="style-desc">emoji+口语化</span>
         </button>
 
-        <button class="style-btn style-wechat" @click="onGenerate('wechat_mp')" :disabled="generating || noDocs">
+        <button
+          class="style-btn style-wechat"
+          @click="onGenerate('wechat_mp')"
+          :disabled="generating || noDocs"
+        >
           <span class="style-emoji">📰</span>
           <span class="style-name">公众号</span>
           <span class="style-desc">深度长文</span>
         </button>
 
-        <button class="style-btn style-douyin" @click="onGenerate('douyin')" :disabled="generating || noDocs">
+        <button
+          class="style-btn style-douyin"
+          @click="onGenerate('douyin')"
+          :disabled="generating || noDocs"
+        >
           <span class="style-emoji">🎬</span>
           <span class="style-name">抖音</span>
           <span class="style-desc">短平快口播</span>

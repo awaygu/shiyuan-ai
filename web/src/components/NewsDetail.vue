@@ -9,7 +9,9 @@
           </el-button>
         </div>
         <div class="detail-meta">
-          <el-tag size="small" type="info" effect="plain">{{ SOURCE_LABELS[news.source] ?? news.source }}</el-tag>
+          <el-tag size="small" type="info" effect="plain">{{
+            SOURCE_LABELS[news.source] ?? news.source
+          }}</el-tag>
           <span class="detail-time">{{ formatTime(news.published_at) }}</span>
           <div class="detail-actions">
             <el-button
@@ -86,15 +88,21 @@ const iframeError = ref(false)
 const iframeSlow = ref(false)
 let slowTimer = 0
 
-watch(news, (n) => {
-  iframeLoading.value = !!n?.url
-  iframeError.value = false
-  iframeSlow.value = false
-  clearTimeout(slowTimer)
-  if (n?.url) {
-    slowTimer = window.setTimeout(() => { iframeSlow.value = true }, 10000)
-  }
-}, { immediate: true })
+watch(
+  news,
+  n => {
+    iframeLoading.value = !!n?.url
+    iframeError.value = false
+    iframeSlow.value = false
+    clearTimeout(slowTimer)
+    if (n?.url) {
+      slowTimer = window.setTimeout(() => {
+        iframeSlow.value = true
+      }, 10000)
+    }
+  },
+  { immediate: true }
+)
 
 function onIframeLoad() {
   iframeLoading.value = false
@@ -129,8 +137,12 @@ function openOriginal() {
 function formatTime(iso: string): string {
   const d = new Date(iso)
   return d.toLocaleString('zh-CN', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   })
 }
 </script>

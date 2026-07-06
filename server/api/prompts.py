@@ -17,8 +17,7 @@ async def get_prompts_status():
         "interpret_system_length": len(prompt_manager.get_system_prompt("interpret")),
         "chat_system_length": len(prompt_manager.get_system_prompt("chat")),
         "generate_styles": {
-            s.value: len(prompt_manager.get_system_prompt("generate", s))
-            for s in prompt_manager.available_styles
+            s.value: len(prompt_manager.get_system_prompt("generate", s)) for s in prompt_manager.available_styles
         },
         "styles": [s.value for s in prompt_manager.available_styles],
         "has_chat_template": bool(prompt_manager.chat_template),
@@ -35,8 +34,7 @@ async def reload_prompts():
         "interpret_system_length": len(prompt_manager.get_system_prompt("interpret")),
         "chat_system_length": len(prompt_manager.get_system_prompt("chat")),
         "generate_styles": {
-            s.value: len(prompt_manager.get_system_prompt("generate", s))
-            for s in prompt_manager.available_styles
+            s.value: len(prompt_manager.get_system_prompt("generate", s)) for s in prompt_manager.available_styles
         },
         "styles": [s.value for s in prompt_manager.available_styles],
     }

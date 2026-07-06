@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 from datetime import datetime
@@ -71,12 +70,14 @@ def init_db(db_path: str):
 def get_sqlite_saver():
     """获取 LangGraph SqliteSaver 实例（用于 checkpointer）。"""
     from langgraph.checkpoint.sqlite import SqliteSaver
+
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     return SqliteSaver(conn)
 
 
 # ── Conversation CRUD ──────────────────────────────────────────
+
 
 def create_conversation(title: str = "新对话") -> dict:
     """创建新对话，返回 {id, title, created_at, updated_at}。"""
@@ -95,9 +96,7 @@ def create_conversation(title: str = "新对话") -> dict:
 def list_conversations(limit: int = 20, offset: int = 0) -> dict:
     """获取对话列表（排除已删除，按更新时间倒序）。"""
     conn = _get_conn()
-    total = conn.execute(
-        "SELECT COUNT(*) FROM conversations WHERE is_deleted = 0"
-    ).fetchone()[0]
+    total = conn.execute("SELECT COUNT(*) FROM conversations WHERE is_deleted = 0").fetchone()[0]
     rows = conn.execute(
         "SELECT id, title, created_at, updated_at FROM conversations "
         "WHERE is_deleted = 0 ORDER BY updated_at DESC LIMIT ? OFFSET ?",
@@ -112,8 +111,7 @@ def get_conversation(conv_id: str) -> dict | None:
     """获取单个对话信息。"""
     conn = _get_conn()
     row = conn.execute(
-        "SELECT id, title, created_at, updated_at FROM conversations "
-        "WHERE id = ? AND is_deleted = 0",
+        "SELECT id, title, created_at, updated_at FROM conversations WHERE id = ? AND is_deleted = 0",
         (conv_id,),
     ).fetchone()
     conn.close()
@@ -173,10 +171,15 @@ def update_conversation_title(conv_id: str, title: str) -> bool:
 
 # ── Message CRUD ───────────────────────────────────────────────
 
-def add_message(conv_id: str, role: str, content: str,
-                tool_calls: str | None = None,
-                tool_call_id: str | None = None,
-                name: str | None = None) -> int:
+
+def add_message(
+    conv_id: str,
+    role: str,
+    content: str,
+    tool_calls: str | None = None,
+    tool_call_id: str | None = None,
+    name: str | None = None,
+) -> int:
     """添加消息，返回自增 ID。"""
     conn = _get_conn()
     cursor = conn.execute(
@@ -210,9 +213,7 @@ def get_messages(conv_id: str, limit: int = 100) -> list[dict]:
 def clear_messages(conv_id: str) -> int:
     """清空对话的所有消息。"""
     conn = _get_conn()
-    cursor = conn.execute(
-        "DELETE FROM messages WHERE conversation_id = ?", (conv_id,)
-    )
+    cursor = conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conv_id,))
     conn.commit()
     conn.close()
     return cursor.rowcount

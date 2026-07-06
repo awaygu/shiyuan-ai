@@ -34,7 +34,7 @@
         :loading="generating"
         style="width: 100%"
       >
-        <el-icon><component is="MagicStick" /></el-icon> {{ generating ? '生成中...' : '生成文章' }}
+        <el-icon><MagicStick /></el-icon> {{ generating ? '生成中...' : '生成文章' }}
       </el-button>
     </div>
 
@@ -70,9 +70,7 @@
       </div>
     </div>
 
-    <div v-if="!generatedContent && !generating" class="empty-hint">
-      选择新闻后点击"生成文章"
-    </div>
+    <div v-if="!generatedContent && !generating" class="empty-hint">选择新闻后点击"生成文章"</div>
   </div>
 </template>
 
@@ -97,7 +95,9 @@ const promptExpanded = ref(false)
 
 const currentStyle = computed({
   get: () => store.currentStyle,
-  set: (v: any) => { store.currentStyle = v },
+  set: (v: any) => {
+    store.currentStyle = v
+  },
 })
 
 function renderMarkdown(text: string): string {
@@ -158,7 +158,7 @@ async function generateArticle() {
       },
     },
     articleTitle.value || undefined,
-    userPrompt.value.trim() || undefined,
+    userPrompt.value.trim() || undefined
   )
 }
 
@@ -275,26 +275,46 @@ function addToArticles() {
   line-height: 1.8;
 }
 
-.preview-content :deep(h1), .preview-content :deep(h2), .preview-content :deep(h3) {
+.preview-content :deep(h1),
+.preview-content :deep(h2),
+.preview-content :deep(h3) {
   margin: 8px 0 4px;
   font-weight: 600;
 }
-.preview-content :deep(h1) { font-size: 18px; }
-.preview-content :deep(h2) { font-size: 16px; }
-.preview-content :deep(h3) { font-size: 15px; }
-.preview-content :deep(p) { margin: 4px 0; }
-.preview-content :deep(ul), .preview-content :deep(ol) { padding-left: 20px; margin: 4px 0; }
-.preview-content :deep(li) { margin: 2px 0; }
-.preview-content :deep(strong) { font-weight: 600; }
-.preview-content :deep(em) { font-style: italic; }
+.preview-content :deep(h1) {
+  font-size: 18px;
+}
+.preview-content :deep(h2) {
+  font-size: 16px;
+}
+.preview-content :deep(h3) {
+  font-size: 15px;
+}
+.preview-content :deep(p) {
+  margin: 4px 0;
+}
+.preview-content :deep(ul),
+.preview-content :deep(ol) {
+  padding-left: 20px;
+  margin: 4px 0;
+}
+.preview-content :deep(li) {
+  margin: 2px 0;
+}
+.preview-content :deep(strong) {
+  font-weight: 600;
+}
+.preview-content :deep(em) {
+  font-style: italic;
+}
 .preview-content :deep(code) {
-  background: rgba(0,0,0,0.06);
+  background: rgba(0, 0, 0, 0.06);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 13px;
 }
 .preview-content :deep(pre) {
-  background: rgba(0,0,0,0.06);
+  background: rgba(0, 0, 0, 0.06);
   padding: 8px 12px;
   border-radius: 6px;
   overflow-x: auto;
@@ -320,8 +340,14 @@ function addToArticles() {
 }
 
 @keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .preview-actions {

@@ -9,9 +9,10 @@ import shutil
 import uuid
 from pathlib import Path
 
-from .base import BrowserPublisher, PublishResult, NeedLoginError, random_delay
-from .image_archive import archive_key, try_read_archive, write_archive
 from config import PUBLISH_MANUAL_TIMEOUT, UPLOAD_DIR
+
+from .base import BrowserPublisher, NeedLoginError, PublishResult, random_delay
+from .image_archive import archive_key, try_read_archive, write_archive
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,12 @@ class XiaohongshuPublisher(BrowserPublisher):
             return False
 
     async def _generate_one(
-        self, gen, kind: str, idx: int, args, tmp_dir: Path,
+        self,
+        gen,
+        kind: str,
+        idx: int,
+        args,
+        tmp_dir: Path,
         archive_path: Path | None = None,
     ) -> Path | None:
         """生成单张图片（带存档复用 + 一次重试 + 限流间隔），返回文件路径或 None。
@@ -165,8 +171,12 @@ class XiaohongshuPublisher(BrowserPublisher):
                 return None
 
     async def _generate_image_files(
-        self, gen, title: str, content: str,
-        generate_cover: bool, generate_inline_images: bool,
+        self,
+        gen,
+        title: str,
+        content: str,
+        generate_cover: bool,
+        generate_inline_images: bool,
         tmp_dir: Path,
     ) -> list[Path]:
         """生成封面 + 正文图，写入临时目录，返回路径列表（封面在前）。
@@ -183,6 +193,7 @@ class XiaohongshuPublisher(BrowserPublisher):
         if generate_inline_images:
             try:
                 from core.image_generator import split_by_headings
+
                 sections = split_by_headings(content)
                 # 小红书图文最多 9 张，封面占 1 张时正文最多 8 张
                 max_inline = XHS_IMAGE_MAX - 1 if generate_cover else XHS_IMAGE_MAX
@@ -246,7 +257,11 @@ class XiaohongshuPublisher(BrowserPublisher):
 
         # 路径2（兜底）：点击「上传图片」按钮触发文件选择器
         try:
-            trigger = page.locator("button.upload-button, .upload-btn, .upload-plus, [class*='upload-wrapper']").filter(visible=True).first
+            trigger = (
+                page.locator("button.upload-button, .upload-btn, .upload-plus, [class*='upload-wrapper']")
+                .filter(visible=True)
+                .first
+            )
             await trigger.wait_for(timeout=8000)
             async with page.expect_file_chooser(timeout=10000) as fc_info:
                 await trigger.click()
@@ -285,15 +300,18 @@ class XiaohongshuPublisher(BrowserPublisher):
         image_paths: list[Path] = []
         tmp_dir: Path | None = None
         try:
-            from config import IMAGE_GEN_ENABLED, DASHSCOPE_API_KEY, IMAGE_GEN_MODEL
+            from config import DASHSCOPE_API_KEY, IMAGE_GEN_ENABLED, IMAGE_GEN_MODEL
+
             if IMAGE_GEN_ENABLED and DASHSCOPE_API_KEY:
                 from core.image_generator import ImageGenerator
+
                 gen = ImageGenerator(DASHSCOPE_API_KEY, IMAGE_GEN_MODEL)
 
                 total_inline = 0
                 if generate_inline_images:
                     try:
                         from core.image_generator import split_by_headings
+
                         total_inline = len(split_by_headings(content))
                     except Exception:
                         pass
@@ -303,7 +321,12 @@ class XiaohongshuPublisher(BrowserPublisher):
                 tmp_dir = TMP_IMG_DIR / uuid.uuid4().hex[:12]
                 tmp_dir.mkdir(parents=True, exist_ok=True)
                 image_paths = await self._generate_image_files(
-                    gen, title, content, generate_cover, generate_inline_images, tmp_dir,
+                    gen,
+                    title,
+                    content,
+                    generate_cover,
+                    generate_inline_images,
+                    tmp_dir,
                 )
                 logger.info("XHS: 共生成 %d 张图片待上传", len(image_paths))
 

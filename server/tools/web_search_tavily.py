@@ -8,7 +8,6 @@ Tavily 专为 AI Agent 设计，返回结构化搜索结果，免费额度 1000 
 
 from __future__ import annotations
 
-import json
 import logging
 
 from langchain_core.tools import tool
@@ -22,6 +21,7 @@ async def web_search(query: str) -> str:
     本地新闻库中没有相关信息时调用此工具。支持搜索任何话题的最新信息。
     返回基于搜索结果整理的摘要内容。"""
     from tavily import AsyncTavilyClient
+
     from config import TAVILY_API_KEY
 
     try:

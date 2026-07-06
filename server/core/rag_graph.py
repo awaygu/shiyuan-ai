@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Annotated, Any
+from typing import Annotated
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -27,13 +27,13 @@ from config import (
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MODEL,
+    MAX_RAG_CONTEXT_CHARS,
     SUMMARY_MODEL,
     SUMMARY_MODEL_API_KEY,
     SUMMARY_MODEL_BASE_URL,
+    TEMPERATURE_CHAT,
     TEMPERATURE_REWRITE,
     TEMPERATURE_SUMMARY,
-    TEMPERATURE_CHAT,
-    MAX_RAG_CONTEXT_CHARS,
 )
 from core.style_manager import prompt_manager
 
@@ -41,23 +41,15 @@ logger = logging.getLogger(__name__)
 
 # ── Rule-based follow-up detection ───────────────────────────────
 
-_FOLLOWUP_PRONOUN_RE = re.compile(
-    r"(那|它|这|上述|刚才|前文|这个|那个|上面|之前|上次|刚才提到的|前面说的)"
-)
+_FOLLOWUP_PRONOUN_RE = re.compile(r"(那|它|这|上述|刚才|前文|这个|那个|上面|之前|上次|刚才提到的|前面说的)")
 _FOLLOWUP_SHORT_RE = re.compile(r"^[^，。！？\n]{1,14}$")
-_FOLLOWUP_EXPLAIN_RE = re.compile(
-    r"(详细|展开|深入|具体|再|进一步|补充|解释|说明|阐述| elaborat|more detail)"
-)
+_FOLLOWUP_EXPLAIN_RE = re.compile(r"(详细|展开|深入|具体|再|进一步|补充|解释|说明|阐述| elaborat|more detail)")
 
 
 def should_rewrite(query: str) -> bool:
-    if _FOLLOWUP_PRONOUN_RE.search(query):
-        return True
-    if _FOLLOWUP_SHORT_RE.match(query):
-        return True
-    if _FOLLOWUP_EXPLAIN_RE.search(query):
-        return True
-    return False
+    return bool(
+        _FOLLOWUP_PRONOUN_RE.search(query) or _FOLLOWUP_SHORT_RE.match(query) or _FOLLOWUP_EXPLAIN_RE.search(query)
+    )
 
 
 # ── Summarization Middleware ─────────────────────────────────────
@@ -91,9 +83,7 @@ class SummarizationMiddleware:
                 total += int(len(m.content) * 1.5)
         return total
 
-    async def maybe_summarize(
-        self, messages: list[BaseMessage]
-    ) -> list[BaseMessage]:
+    async def maybe_summarize(self, messages: list[BaseMessage]) -> list[BaseMessage]:
         non_system = [m for m in messages if not isinstance(m, SystemMessage)]
         if len(non_system) <= self.keep_messages:
             return messages
@@ -136,9 +126,7 @@ class SummarizationMiddleware:
         try:
             resp = await self.model.ainvoke(
                 [
-                    SystemMessage(
-                        content=prompt_manager.conversation_summary_prompt
-                    ),
+                    SystemMessage(content=prompt_manager.conversation_summary_prompt),
                     HumanMessage(content=conversation_text),
                 ]
             )
@@ -205,9 +193,7 @@ async def rewrite_query(state: dict) -> dict:
         resp = await rewrite_llm.ainvoke(
             [
                 SystemMessage(content=prompt_manager.rewrite_system_prompt),
-                HumanMessage(
-                    content=f"历史对话：\n{history_text}\n当前用户输入：{query}"
-                ),
+                HumanMessage(content=f"历史对话：\n{history_text}\n当前用户输入：{query}"),
             ]
         )
         raw = (resp.content or "").strip()
@@ -289,11 +275,11 @@ def _rrf_fuse(
 
 
 async def retrieve(state: dict) -> dict:
-    from rag.embeddings import DashScopeEmbedding
-    from rag.vectorstore import VectorStoreManager
-    from rag.bm25_index import bm25_manager
     from config import KB_EMBEDDING_DIM
     from database import load_kb_chunk_texts, load_kb_docs
+    from rag.bm25_index import bm25_manager
+    from rag.embeddings import DashScopeEmbedding
+    from rag.vectorstore import VectorStoreManager
 
     if state.get("skip_retrieve", False):
         return {
@@ -416,7 +402,10 @@ def truncate_context(context: str, max_chars: int = MAX_RAG_CONTEXT_CHARS) -> st
         current_len += needed
     logger.warning(
         "Context truncated: %d chars → %d chars (kept %d/%d chunks)",
-        len(context), current_len, len(result), len(chunks),
+        len(context),
+        current_len,
+        len(result),
+        len(chunks),
     )
     return "\n\n".join(result)
 
@@ -489,10 +478,9 @@ async def get_rag_checkpointer() -> AsyncSqliteSaver:
     global _rag_checkpointer, _rag_checkpointer_ctx
     if _rag_checkpointer is None:
         from pathlib import Path
+
         Path(KB_RAG_MEMORY_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-        _rag_checkpointer_ctx = AsyncSqliteSaver.from_conn_string(
-            KB_RAG_MEMORY_DB_PATH
-        )
+        _rag_checkpointer_ctx = AsyncSqliteSaver.from_conn_string(KB_RAG_MEMORY_DB_PATH)
         _rag_checkpointer = await _rag_checkpointer_ctx.__aenter__()
     return _rag_checkpointer
 

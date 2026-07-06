@@ -19,36 +19,34 @@
 
     <el-main class="app-main">
       <div class="two-columns" ref="columnsRef">
-        <div
-          class="column column-left"
-          :style="{ width: leftWidth + 'px', flex: 'none' }"
-        >
+        <div class="column column-left" :style="{ width: leftWidth + 'px', flex: 'none' }">
           <NewsList @toggle-keywords="showKeywords = !showKeywords" />
         </div>
 
-        <div
-          class="resize-handle"
-          @mousedown="(e) => startResize(e)"
-        ></div>
+        <div class="resize-handle" @mousedown="e => startResize(e)"></div>
 
         <div class="column column-center">
           <NewsDetail />
         </div>
 
-        <div
-          v-if="showKeywords"
-          class="resize-handle"
-          @mousedown="(e) => startKwResize(e)"
-        ></div>
+        <div v-if="showKeywords" class="resize-handle" @mousedown="e => startKwResize(e)"></div>
 
         <transition name="slide-right">
-          <div v-if="showKeywords" class="column column-kw" :style="{ width: kwWidth + 'px', flex: 'none' }">
+          <div
+            v-if="showKeywords"
+            class="column column-kw"
+            :style="{ width: kwWidth + 'px', flex: 'none' }"
+          >
             <KeywordSettings @close="showKeywords = false" />
           </div>
         </transition>
 
         <transition name="slide-right">
-          <div v-if="store.showTaskPanel" class="column column-task" :style="{ width: taskWidth + 'px', flex: 'none' }">
+          <div
+            v-if="store.showTaskPanel"
+            class="column column-task"
+            :style="{ width: taskWidth + 'px', flex: 'none' }"
+          >
             <TaskPanel @close="store.showTaskPanel = false" />
           </div>
         </transition>
@@ -232,7 +230,9 @@ onBeforeUnmount(() => {
 
 .slide-right-enter-active,
 .slide-right-leave-active {
-  transition: width 0.25s ease, opacity 0.2s ease;
+  transition:
+    width 0.25s ease,
+    opacity 0.2s ease;
 }
 
 .slide-right-enter-from,

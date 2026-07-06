@@ -26,9 +26,11 @@ async def web_search(query: str) -> str:
 
     if engine == "tavily":
         from tools.web_search_tavily import web_search as tavily_search
+
         return await tavily_search.ainvoke({"query": query})
     else:
         from tools.web_search_kimi import web_search_kimi as kimi_search
+
         return await kimi_search.ainvoke({"query": query})
 
 
@@ -44,6 +46,7 @@ async def web_search_structured(query: str) -> list[dict]:
 
     if engine == "tavily":
         from tavily import AsyncTavilyClient
+
         from config import TAVILY_API_KEY
 
         client = AsyncTavilyClient(api_key=TAVILY_API_KEY)
@@ -65,6 +68,7 @@ async def web_search_structured(query: str) -> list[dict]:
 
     # Kimi 路径：返回合成文本，需解析回结构化
     from tools.web_search_kimi import web_search_kimi as kimi_search
+
     text = await kimi_search.ainvoke({"query": query})
     return _parse_kimi_structured(text)
 
@@ -130,17 +134,19 @@ def _parse_kimi_structured(text: str) -> list[dict]:
             if t:
                 first_line = t
                 break
-        fallback.append({
-            "title": first_line or "联网搜索结果",
-            "url": "",
-            "content": stripped,
-        })
+        fallback.append(
+            {
+                "title": first_line or "联网搜索结果",
+                "url": "",
+                "content": stripped,
+            }
+        )
     return fallback
 
 
 def get_web_search_tool():
     """返回配置可用的联网搜索工具，如果未配置则返回 None。"""
-    from config import WEB_SEARCH_ENABLED, WEB_SEARCH_ENGINE, MOONSHOT_API_KEY, TAVILY_API_KEY
+    from config import MOONSHOT_API_KEY, TAVILY_API_KEY, WEB_SEARCH_ENABLED, WEB_SEARCH_ENGINE
 
     if not WEB_SEARCH_ENABLED:
         return None

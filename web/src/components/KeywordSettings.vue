@@ -4,7 +4,13 @@
       <h3>🔑 关键词过滤</h3>
       <button class="kw-close" @click="emit('close')" title="关闭">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-          <path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          <path
+            d="M9 5L16 12L9 19"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </button>
     </div>
@@ -24,9 +30,18 @@
         <div class="kw-group-header" @click="toggleGroup(gi)">
           <svg
             :class="{ rotated: expandedGroups.has(gi) }"
-            width="14" height="14" viewBox="0 0 24 24" fill="none"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
           >
-            <path d="M9 5L16 12L9 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            <path
+              d="M9 5L16 12L9 19"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
           <template v-if="editingGroupName === gi">
             <el-input
@@ -39,7 +54,9 @@
             />
           </template>
           <template v-else>
-            <span class="kw-group-name" @dblclick.stop="startEditGroupName(gi, group.name)">{{ group.name }}</span>
+            <span class="kw-group-name" @dblclick.stop="startEditGroupName(gi, group.name)">{{
+              group.name
+            }}</span>
           </template>
           <span class="kw-group-count">{{ group.keywords.length }}</span>
           <button class="kw-group-del" @click.stop="removeGroup(gi)" title="删除分组">
@@ -62,7 +79,7 @@
           <div class="kw-add-row">
             <el-input
               :model-value="newKeywords[gi] ?? ''"
-              @update:model-value="(val: string) => newKeywords[gi] = val"
+              @update:model-value="(val: string) => (newKeywords[gi] = val)"
               size="small"
               placeholder="输入关键词，/正则/ 格式为正则"
               @keyup.enter="addKeyword(gi)"
@@ -105,15 +122,15 @@ function isRegex(kw: string): boolean {
   return kw.startsWith('/') && kw.endsWith('/') && kw.length >= 2
 }
 
-  function toggleGroup(gi: number) {
-    const s = new Set(expandedGroups.value)
-    if (s.has(gi)) {
-      s.delete(gi)
-    } else {
-      s.add(gi)
-    }
-    expandedGroups.value = s
+function toggleGroup(gi: number) {
+  const s = new Set(expandedGroups.value)
+  if (s.has(gi)) {
+    s.delete(gi)
+  } else {
+    s.add(gi)
   }
+  expandedGroups.value = s
+}
 
 function addGroup() {
   const name = `分组${groups.value.length + 1}`
@@ -126,7 +143,7 @@ function removeGroup(gi: number) {
   groups.value.splice(gi, 1)
   const s = new Set(expandedGroups.value)
   s.delete(gi)
-  expandedGroups.value = new Set([...s].map(i => i > gi ? i - 1 : i))
+  expandedGroups.value = new Set([...s].map(i => (i > gi ? i - 1 : i)))
 }
 
 function startEditGroupName(gi: number, name: string) {

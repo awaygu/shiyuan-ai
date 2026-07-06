@@ -1,7 +1,18 @@
 /** Backend API request wrappers. */
 
 import axios from 'axios'
-import type { NewsItem, Article, PublishRecord, StyleType, KBDoc, KBSearchResult, KnowledgeBase, KBConversation, KBMessage, AsyncTask } from '@/types'
+import type {
+  NewsItem,
+  Article,
+  PublishRecord,
+  StyleType,
+  KBDoc,
+  KBSearchResult,
+  KnowledgeBase,
+  KBConversation,
+  KBMessage,
+  AsyncTask,
+} from '@/types'
 
 const api = axios.create({
   baseURL: '/api',
@@ -9,7 +20,11 @@ const api = axios.create({
 })
 
 /** Fetch news with pagination, optionally filtered by source. */
-export async function fetchNews(source?: string, offset = 0, limit = 20): Promise<{ total: number; items: NewsItem[] }> {
+export async function fetchNews(
+  source?: string,
+  offset = 0,
+  limit = 20
+): Promise<{ total: number; items: NewsItem[] }> {
   const params: Record<string, any> = { offset, limit }
   if (source) params.source = source
   const res = await api.get('/news', { params })
@@ -23,13 +38,17 @@ export async function refreshNews(): Promise<{ total: number; results: Record<st
 }
 
 /** Refresh a single source (NewsNow platform or RSS feed). */
-export async function refreshNewsSource(source: string): Promise<{ source: string; total: number; new: number }> {
+export async function refreshNewsSource(
+  source: string
+): Promise<{ source: string; total: number; new: number }> {
   const res = await api.post(`/news/refresh/${encodeURIComponent(source)}`)
   return res.data
 }
 
 /** Clear cached content for a specific source so it gets re-fetched. */
-export async function clearNewsContentCache(source: string): Promise<{ source: string; cleared: number }> {
+export async function clearNewsContentCache(
+  source: string
+): Promise<{ source: string; cleared: number }> {
   const res = await api.post(`/news/clear-cache/${encodeURIComponent(source)}`)
   return res.data
 }
@@ -49,13 +68,18 @@ export async function fetchNewsNowPlatforms(): Promise<Record<string, string>> {
 }
 
 /** Refresh all NewsNow platforms. */
-export async function refreshNewsNow(): Promise<{ total_new: number; summary: Record<string, any> }> {
+export async function refreshNewsNow(): Promise<{
+  total_new: number
+  summary: Record<string, any>
+}> {
   const res = await api.post('/newsnow/refresh')
   return res.data
 }
 
 /** Refresh a specific NewsNow platform. */
-export async function refreshNewsNowPlatform(platformId: string): Promise<{ platform: string; name: string; total: number; new: number }> {
+export async function refreshNewsNowPlatform(
+  platformId: string
+): Promise<{ platform: string; name: string; total: number; new: number }> {
   const res = await api.post(`/newsnow/refresh/${platformId}`)
   return res.data
 }
@@ -107,7 +131,11 @@ export async function chatInterpret(message: string, newsIds: string[]) {
 }
 
 /** Generate a full article. */
-export async function generateArticle(newsIds: string[], style: StyleType, title?: string): Promise<Article> {
+export async function generateArticle(
+  newsIds: string[],
+  style: StyleType,
+  title?: string
+): Promise<Article> {
   const res = await api.post('/generate_article', { news_ids: newsIds, style, title })
   return res.data
 }
@@ -124,9 +152,15 @@ export async function publishArticle(
   platform: string,
   options?: { generate_cover?: boolean; generate_inline_images?: boolean }
 ): Promise<PublishRecord & { need_login?: boolean }> {
-  const body: Record<string, any> = { article_id: articleId, platform, generate_cover: true, generate_inline_images: false }
+  const body: Record<string, any> = {
+    article_id: articleId,
+    platform,
+    generate_cover: true,
+    generate_inline_images: false,
+  }
   if (options?.generate_cover !== undefined) body.generate_cover = options.generate_cover
-  if (options?.generate_inline_images !== undefined) body.generate_inline_images = options.generate_inline_images
+  if (options?.generate_inline_images !== undefined)
+    body.generate_inline_images = options.generate_inline_images
   const res = await api.post('/publish', body, { timeout: 300000 })
   return res.data
 }
@@ -138,21 +172,36 @@ export async function publishByContent(
   platform: string,
   options?: { generate_cover?: boolean; generate_inline_images?: boolean }
 ): Promise<PublishRecord & { need_login?: boolean }> {
-  const body: Record<string, any> = { title, content, platform, generate_cover: true, generate_inline_images: false }
+  const body: Record<string, any> = {
+    title,
+    content,
+    platform,
+    generate_cover: true,
+    generate_inline_images: false,
+  }
   if (options?.generate_cover !== undefined) body.generate_cover = options.generate_cover
-  if (options?.generate_inline_images !== undefined) body.generate_inline_images = options.generate_inline_images
+  if (options?.generate_inline_images !== undefined)
+    body.generate_inline_images = options.generate_inline_images
   const res = await api.post('/publish', body, { timeout: 300000 })
   return res.data
 }
 
 /** Trigger login for browser-based platform. */
-export async function loginPlatform(platform: string): Promise<{ success: boolean; error_message?: string }> {
-  const res = await api.post(`/publish/${encodeURIComponent(platform)}/login`, {}, { timeout: 120000 })
+export async function loginPlatform(
+  platform: string
+): Promise<{ success: boolean; error_message?: string }> {
+  const res = await api.post(
+    `/publish/${encodeURIComponent(platform)}/login`,
+    {},
+    { timeout: 120000 }
+  )
   return res.data
 }
 
 /** Check login status for a platform. */
-export async function getLoginStatus(platform: string): Promise<{ logged_in: boolean; error_message?: string }> {
+export async function getLoginStatus(
+  platform: string
+): Promise<{ logged_in: boolean; error_message?: string }> {
   const res = await api.get(`/publish/${encodeURIComponent(platform)}/status`)
   return res.data
 }
@@ -241,15 +290,30 @@ async function consumeSSE(path: string, body: Record<string, any>, callbacks: St
 }
 
 /** Stream chat interpretation. */
-export function streamChat(message: string, newsIds: string[], callbacks: StreamCallbacks, webSearch = false) {
+export function streamChat(
+  message: string,
+  newsIds: string[],
+  callbacks: StreamCallbacks,
+  webSearch = false
+) {
   const body: Record<string, any> = { message, news_ids: newsIds }
   if (webSearch) body.web_search = true
   return consumeSSE('/api/chat/stream', body, callbacks)
 }
 
 /** Stream article generation. */
-export function streamGenerateArticle(newsIds: string[], style: StyleType, callbacks: StreamCallbacks, title?: string, prompt?: string) {
-  return consumeSSE('/api/generate_article/stream', { news_ids: newsIds, style, title, prompt }, callbacks)
+export function streamGenerateArticle(
+  newsIds: string[],
+  style: StyleType,
+  callbacks: StreamCallbacks,
+  title?: string,
+  prompt?: string
+) {
+  return consumeSSE(
+    '/api/generate_article/stream',
+    { news_ids: newsIds, style, title, prompt },
+    callbacks
+  )
 }
 
 /** Stream single news interpretation. */
@@ -273,7 +337,10 @@ export async function fetchTrends(topN = 10): Promise<{ trends: TrendItem[]; tot
 }
 
 /** Compare coverage across sources. */
-export async function compareSources(keyword: string, sources?: string[]): Promise<{
+export async function compareSources(
+  keyword: string,
+  sources?: string[]
+): Promise<{
   keyword: string
   comparison: string
   matched_count: number
@@ -284,7 +351,11 @@ export async function compareSources(keyword: string, sources?: string[]): Promi
 }
 
 /** Search news by keyword. */
-export async function searchNews(q: string, source?: string, limit = 20): Promise<{
+export async function searchNews(
+  q: string,
+  source?: string,
+  limit = 20
+): Promise<{
   keyword: string
   total: number
   items: NewsItem[]
@@ -319,7 +390,14 @@ export interface AgentStreamCallbacks extends StreamCallbacks {
 }
 
 /** Stream agent chat (general chat with action detection). */
-export function streamAgentChat(message: string, newsIds: string[], callbacks: AgentStreamCallbacks, currentNewsId?: string, webSearch = false, conversationId?: string) {
+export function streamAgentChat(
+  message: string,
+  newsIds: string[],
+  callbacks: AgentStreamCallbacks,
+  currentNewsId?: string,
+  webSearch = false,
+  conversationId?: string
+) {
   const body: Record<string, any> = { message, news_ids: newsIds }
   if (currentNewsId) body.current_news_id = currentNewsId
   if (webSearch) body.web_search = true
@@ -327,7 +405,11 @@ export function streamAgentChat(message: string, newsIds: string[], callbacks: A
   return consumeAgentSSE('/api/agent/chat/stream', body, callbacks)
 }
 
-async function consumeAgentSSE(path: string, body: Record<string, any>, callbacks: AgentStreamCallbacks) {
+async function consumeAgentSSE(
+  path: string,
+  body: Record<string, any>,
+  callbacks: AgentStreamCallbacks
+) {
   const url = SSE_BASE_URL + path
   try {
     const response = await fetch(url, {
@@ -399,7 +481,10 @@ async function consumeAgentSSE(path: string, body: Record<string, any>, callback
 }
 
 /** Execute a site action. */
-export async function executeAction(action: string, params?: Record<string, any>): Promise<Record<string, any>> {
+export async function executeAction(
+  action: string,
+  params?: Record<string, any>
+): Promise<Record<string, any>> {
   const body: Record<string, any> = { action, ...params }
   const res = await api.post('/agent/execute', body)
   return res.data
@@ -429,7 +514,10 @@ export async function createConversation(title = '新对话'): Promise<Conversat
   return res.data
 }
 
-export async function listConversations(limit = 20, offset = 0): Promise<{ total: number; items: Conversation[] }> {
+export async function listConversations(
+  limit = 20,
+  offset = 0
+): Promise<{ total: number; items: Conversation[] }> {
   const res = await api.get('/conversations', { params: { limit, offset } })
   return res.data
 }
@@ -443,7 +531,9 @@ export async function deleteConversation(convId: string): Promise<void> {
   await api.delete(`/conversations/${convId}`)
 }
 
-export async function getConversationMessages(convId: string): Promise<{ conversation_id: string; messages: ConversationMessage[] }> {
+export async function getConversationMessages(
+  convId: string
+): Promise<{ conversation_id: string; messages: ConversationMessage[] }> {
   const res = await api.get(`/conversations/${convId}/messages`)
   return res.data
 }
@@ -469,13 +559,19 @@ export async function deleteKnowledgeBase(kbId: string): Promise<void> {
   await api.delete(`/knowledge/bases/${encodeURIComponent(kbId)}`)
 }
 
-export async function updateKnowledgeBase(kbId: string, data: { name?: string; description?: string }): Promise<KnowledgeBase> {
+export async function updateKnowledgeBase(
+  kbId: string,
+  data: { name?: string; description?: string }
+): Promise<KnowledgeBase> {
   const res = await api.patch(`/knowledge/bases/${encodeURIComponent(kbId)}`, data)
   return res.data
 }
 
 /** Upload documents to a knowledge base. */
-export async function uploadDocuments(kbId: string, files: File[]): Promise<{ results: any[]; errors: any[] }> {
+export async function uploadDocuments(
+  kbId: string,
+  files: File[]
+): Promise<{ results: any[]; errors: any[] }> {
   const formData = new FormData()
   for (const file of files) {
     formData.append('files', file)
@@ -489,41 +585,92 @@ export async function uploadDocuments(kbId: string, files: File[]): Promise<{ re
 
 /** Fetch suggested questions for a knowledge base. */
 export async function fetchKBSuggestions(kbId: string): Promise<string[]> {
-  const res = await api.get(`/knowledge/bases/${encodeURIComponent(kbId)}/suggestions`, { timeout: 30000 })
+  const res = await api.get(`/knowledge/bases/${encodeURIComponent(kbId)}/suggestions`, {
+    timeout: 30000,
+  })
   return res.data.suggestions || []
 }
 
 /** Fetch all knowledge base documents. */
-export async function fetchKBDocuments(kbId: string): Promise<{ documents: KBDoc[]; total_chunks: number }> {
-  const res = await api.get(`/knowledge/bases/${encodeURIComponent(kbId)}/documents`, { timeout: 60000 })
+export async function fetchKBDocuments(
+  kbId: string
+): Promise<{ documents: KBDoc[]; total_chunks: number }> {
+  const res = await api.get(`/knowledge/bases/${encodeURIComponent(kbId)}/documents`, {
+    timeout: 60000,
+  })
   return res.data
 }
 
 /** Delete a knowledge base document. */
-export async function deleteKBDocument(kbId: string, docId: string): Promise<{ deleted: boolean; doc_id: string; chunks_removed: number }> {
-  const res = await api.delete(`/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`, { timeout: 60000 })
+export async function deleteKBDocument(
+  kbId: string,
+  docId: string
+): Promise<{ deleted: boolean; doc_id: string; chunks_removed: number }> {
+  const res = await api.delete(
+    `/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`,
+    { timeout: 60000 }
+  )
   return res.data
 }
 
-export async function renameKBDocument(kbId: string, docId: string, filename: string): Promise<{ doc_id: string; filename: string }> {
-  const res = await api.patch(`/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`, { filename })
+export async function renameKBDocument(
+  kbId: string,
+  docId: string,
+  filename: string
+): Promise<{ doc_id: string; filename: string }> {
+  const res = await api.patch(
+    `/knowledge/bases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`,
+    { filename }
+  )
   return res.data
 }
 
 /** Semantic search in knowledge base. */
-export async function searchKnowledgeBase(kbId: string, query: string, topK = 5): Promise<{ results: KBSearchResult[]; total: number }> {
-  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/search`, { query, top_k: topK }, { timeout: 60000 })
+export async function searchKnowledgeBase(
+  kbId: string,
+  query: string,
+  topK = 5
+): Promise<{ results: KBSearchResult[]; total: number }> {
+  const res = await api.post(
+    `/knowledge/bases/${encodeURIComponent(kbId)}/search`,
+    { query, top_k: topK },
+    { timeout: 60000 }
+  )
   return res.data
 }
 
 /** Stream KB RAG chat. */
-export function kbStreamChat(kbId: string, message: string, docIds: string[], callbacks: AgentStreamCallbacks, topK = 5, webSearch = false, convId = '') {
-  return consumeAgentSSE(`/api/knowledge/bases/${encodeURIComponent(kbId)}/chat/stream`, { message, doc_ids: docIds, top_k: topK, web_search: webSearch, conv_id: convId }, callbacks)
+export function kbStreamChat(
+  kbId: string,
+  message: string,
+  docIds: string[],
+  callbacks: AgentStreamCallbacks,
+  topK = 5,
+  webSearch = false,
+  convId = ''
+) {
+  return consumeAgentSSE(
+    `/api/knowledge/bases/${encodeURIComponent(kbId)}/chat/stream`,
+    { message, doc_ids: docIds, top_k: topK, web_search: webSearch, conv_id: convId },
+    callbacks
+  )
 }
 
 /** Stream KB RAG article generation. */
-export function kbStreamGenerate(kbId: string, message: string, style: StyleType, callbacks: AgentStreamCallbacks, docIds: string[] = [], topK = 5, convId = '') {
-  return consumeAgentSSE(`/api/knowledge/bases/${encodeURIComponent(kbId)}/generate/stream`, { message, style, doc_ids: docIds, top_k: topK, conv_id: convId }, callbacks)
+export function kbStreamGenerate(
+  kbId: string,
+  message: string,
+  style: StyleType,
+  callbacks: AgentStreamCallbacks,
+  docIds: string[] = [],
+  topK = 5,
+  convId = ''
+) {
+  return consumeAgentSSE(
+    `/api/knowledge/bases/${encodeURIComponent(kbId)}/generate/stream`,
+    { message, style, doc_ids: docIds, top_k: topK, conv_id: convId },
+    callbacks
+  )
 }
 
 export interface WebSearchItem {
@@ -534,20 +681,33 @@ export interface WebSearchItem {
 
 /** Standalone web search for a knowledge base. */
 export async function webSearchKB(kbId: string, query: string): Promise<WebSearchItem[]> {
-  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/web-search`, { query }, { timeout: 60000 })
+  const res = await api.post(
+    `/knowledge/bases/${encodeURIComponent(kbId)}/web-search`,
+    { query },
+    { timeout: 60000 }
+  )
   return res.data.results || []
 }
 
 /** Save (ingest) text items as KB documents. */
-export async function ingestTextToKB(kbId: string, items: { title: string; content: string; url?: string; filename?: string }[]): Promise<{ results: any[]; errors: any[] }> {
-  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/ingest-text`, { items }, { timeout: 120000 })
+export async function ingestTextToKB(
+  kbId: string,
+  items: { title: string; content: string; url?: string; filename?: string }[]
+): Promise<{ results: any[]; errors: any[] }> {
+  const res = await api.post(
+    `/knowledge/bases/${encodeURIComponent(kbId)}/ingest-text`,
+    { items },
+    { timeout: 120000 }
+  )
   return res.data
 }
 
 // ── KB Conversations ──────────────────────────────────────────
 
 export async function createKBConversation(kbId: string, title = ''): Promise<KBConversation> {
-  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/conversations`, { title })
+  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/conversations`, {
+    title,
+  })
   return res.data
 }
 
@@ -557,16 +717,30 @@ export async function fetchKBConversations(kbId: string): Promise<KBConversation
 }
 
 export async function deleteKBConversation(kbId: string, convId: string): Promise<void> {
-  await api.delete(`/knowledge/bases/${encodeURIComponent(kbId)}/conversations/${encodeURIComponent(convId)}`)
+  await api.delete(
+    `/knowledge/bases/${encodeURIComponent(kbId)}/conversations/${encodeURIComponent(convId)}`
+  )
 }
 
 export async function fetchKBMessages(kbId: string, convId: string): Promise<KBMessage[]> {
-  const res = await api.get(`/knowledge/bases/${encodeURIComponent(kbId)}/conversations/${encodeURIComponent(convId)}/messages`)
+  const res = await api.get(
+    `/knowledge/bases/${encodeURIComponent(kbId)}/conversations/${encodeURIComponent(convId)}/messages`
+  )
   return res.data.messages
 }
 
-export async function saveKBMessage(kbId: string, convId: string, role: string, content: string, type = 'chat', sources: any[] = []): Promise<{ msg_id: string }> {
-  const res = await api.post(`/knowledge/bases/${encodeURIComponent(kbId)}/conversations/${encodeURIComponent(convId)}/messages`, { role, content, type, sources })
+export async function saveKBMessage(
+  kbId: string,
+  convId: string,
+  role: string,
+  content: string,
+  type = 'chat',
+  sources: any[] = []
+): Promise<{ msg_id: string }> {
+  const res = await api.post(
+    `/knowledge/bases/${encodeURIComponent(kbId)}/conversations/${encodeURIComponent(convId)}/messages`,
+    { role, content, type, sources }
+  )
   return res.data
 }
 
@@ -577,12 +751,18 @@ export interface KeywordGroup {
   keywords: string[]
 }
 
-export async function fetchKeywordStatus(): Promise<{ enabled: boolean; groups: KeywordGroup[]; total_rules: number }> {
+export async function fetchKeywordStatus(): Promise<{
+  enabled: boolean
+  groups: KeywordGroup[]
+  total_rules: number
+}> {
   const res = await api.get('/keywords/status')
   return res.data
 }
 
-export async function updateKeywordGroups(groups: KeywordGroup[]): Promise<{ enabled: boolean; total_rules: number; groups: KeywordGroup[] }> {
+export async function updateKeywordGroups(
+  groups: KeywordGroup[]
+): Promise<{ enabled: boolean; total_rules: number; groups: KeywordGroup[] }> {
   const res = await api.put('/keywords', { groups })
   return res.data
 }
@@ -648,5 +828,7 @@ export function streamTaskUpdates(callbacks: {
     }
   })()
 
-  return () => { stopped = true }
+  return () => {
+    stopped = true
+  }
 }

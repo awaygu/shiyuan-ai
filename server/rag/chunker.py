@@ -6,7 +6,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 
-from config import KB_CHUNK_SIZE, KB_CHUNK_OVERLAP
+from config import KB_CHUNK_OVERLAP, KB_CHUNK_SIZE
 
 SENTENCE_END_RE = re.compile(r"([。！？；\.\!\?;])")
 

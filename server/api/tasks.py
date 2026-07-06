@@ -9,7 +9,6 @@ import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Coroutine
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -108,7 +107,7 @@ class TaskManager:
 
     def get_all_tasks(self) -> list[AsyncTask]:
         return sorted(
-            list(self.tasks.values()),
+            self.tasks.values(),
             key=lambda t: t.created_at,
             reverse=True,
         )
@@ -148,10 +147,7 @@ class TaskManager:
 
     async def clear_done(self):
         async with self._lock:
-            to_remove = [
-                tid for tid, t in self.tasks.items()
-                if t.status in ("completed", "failed")
-            ]
+            to_remove = [tid for tid, t in self.tasks.items() if t.status in ("completed", "failed")]
             for tid in to_remove:
                 del self.tasks[tid]
 
@@ -182,8 +178,8 @@ async def stream_tasks():
                 try:
                     data = await asyncio.wait_for(q.get(), timeout=30.0)
                     yield f"data: {data}\n\n"
-                except asyncio.TimeoutError:
-                    yield f": keepalive\n\n"
+                except TimeoutError:
+                    yield ": keepalive\n\n"
         except asyncio.CancelledError:
             pass
         finally:

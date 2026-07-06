@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Sequence
+from collections.abc import Sequence
 
 import dashscope
 from dashscope import TextEmbedding
@@ -46,9 +46,7 @@ class DashScopeEmbedding:
             self._rate_limit_wait()
             resp = TextEmbedding.call(model=EMBEDDING_MODEL, input=batch)
             if resp.status_code != 200:
-                raise RuntimeError(
-                    f"DashScope embedding failed: {resp.status_code} - {resp.message}"
-                )
+                raise RuntimeError(f"DashScope embedding failed: {resp.status_code} - {resp.message}")
             batch_embs = [item["embedding"] for item in resp.output["embeddings"]]
             all_embeddings.extend(batch_embs)
         return all_embeddings

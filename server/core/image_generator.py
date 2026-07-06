@@ -6,7 +6,6 @@ published to WeChat Official Account.
 
 from __future__ import annotations
 
-import asyncio
 import io
 import logging
 from dataclasses import dataclass
@@ -16,15 +15,9 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-DASHSCOPE_GEN_URL = (
-    "https://dashscope.aliyuncs.com/api/v1"
-    "/services/aigc/multimodal-generation/generation"
-)
+DASHSCOPE_GEN_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 
-DEFAULT_NEGATIVE_PROMPT = (
-    "低分辨率，低画质，画面具有AI感，构图混乱，"
-    "文字模糊，扭曲，水印，logo，字母"
-)
+DEFAULT_NEGATIVE_PROMPT = "低分辨率，低画质，画面具有AI感，构图混乱，文字模糊，扭曲，水印，logo，字母"
 
 
 @dataclass
@@ -94,9 +87,7 @@ class ImageGenerator:
             data = resp.json()
 
         if "code" in data and data.get("code"):
-            raise RuntimeError(
-                f"DashScope error {data.get('code')}: {data.get('message')}"
-            )
+            raise RuntimeError(f"DashScope error {data.get('code')}: {data.get('message')}")
 
         choices = data.get("output", {}).get("choices", [])
         if not choices:
@@ -132,11 +123,12 @@ class ImageGenerator:
             template = IMAGE_PROMPT_INLINE
             text = template.format(section_title=title, section_digest=digest[:300])
 
-        from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, TEMPERATURE_ANALYZE
-        from langchain_openai import ChatOpenAI
         from langchain_core.prompts import ChatPromptTemplate
+        from langchain_openai import ChatOpenAI
 
+        from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, TEMPERATURE_ANALYZE
         from core.style_manager import prompt_manager
+
         llm = ChatOpenAI(
             api_key=LLM_API_KEY,
             base_url=LLM_BASE_URL,
@@ -144,10 +136,12 @@ class ImageGenerator:
             temperature=TEMPERATURE_ANALYZE,
             max_tokens=300,
         )
-        prompt_text = ChatPromptTemplate.from_messages([
-            ("system", prompt_manager.image_prompt_writer_system_prompt),
-            ("human", text),
-        ])
+        prompt_text = ChatPromptTemplate.from_messages(
+            [
+                ("system", prompt_manager.image_prompt_writer_system_prompt),
+                ("human", text),
+            ]
+        )
         chain = prompt_text | llm
         result = await chain.ainvoke({})
         return result.content.strip().strip('"').strip("'")
@@ -159,9 +153,7 @@ class ImageGenerator:
         img_bytes = await self.generate_image(prompt, size="2048*868")
         return self._crop_cover(img_bytes)
 
-    async def generate_section_image(
-        self, section_title: str, section_text: str
-    ) -> bytes:
+    async def generate_section_image(self, section_title: str, section_text: str) -> bytes:
         digest = section_text[:300]
         prompt = await self.extract_image_prompt(section_title, digest, "inline")
         logger.info("Section image prompt [%s]: %s", section_title, prompt)

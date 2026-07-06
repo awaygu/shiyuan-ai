@@ -31,6 +31,7 @@ async def web_search_kimi(query: str) -> str:
     本地新闻库中没有相关信息时调用此工具。支持搜索任何话题的最新信息。
     返回基于搜索结果整理的摘要内容。"""
     from openai import AsyncOpenAI
+
     from config import MOONSHOT_API_KEY
 
     # Kimi $web_search 由服务端先搜索再生成，整体耗时较长；
@@ -90,12 +91,14 @@ async def web_search_kimi(query: str) -> str:
                         tool_result = f"Error: unable to find tool by name '{tool_call_name}'"
 
                     # 构造 role=tool 的消息，必须包含 tool_call_id 和 name
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_call_name,
-                        "content": json.dumps(tool_result),
-                    })
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_call_name,
+                            "content": json.dumps(tool_result),
+                        }
+                    )
 
         if rounds >= max_rounds and finish_reason == "tool_calls":
             # 触发 tool_calls 循环上限，视为失败而非静默返回空

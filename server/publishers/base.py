@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PublishResult:
     """Result of a publish attempt."""
+
     success: bool
     platform: str
     article_title: str
@@ -33,6 +34,7 @@ class PublishResult:
 
 class NeedLoginError(Exception):
     """Raised when platform requires user to re-login."""
+
     def __init__(self, message: str = "Login required"):
         super().__init__(message)
         self.message = message
@@ -136,6 +138,7 @@ class BrowserPublisher(BasePublisher):
 
     async def _check_login_impl(self, cookies):
         from playwright.async_api import async_playwright
+
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
             context = await browser.new_context(storage_state=cookies)
@@ -164,6 +167,7 @@ class BrowserPublisher(BasePublisher):
 
     async def _do_login_impl(self):
         from playwright.async_api import async_playwright
+
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=False)
             context = await browser.new_context(viewport={"width": 1280, "height": 800})
@@ -231,6 +235,7 @@ class BrowserPublisher(BasePublisher):
 
     async def _publish_impl(self, cookies, title, content, **kwargs):
         from playwright.async_api import async_playwright
+
         async with async_playwright() as pw:
             headless = PUBLISH_HEADLESS
             browser = await pw.chromium.launch(headless=headless)

@@ -14,35 +14,25 @@ import httpx
 from fastapi import HTTPException
 
 from config import (
-    NEWS_SOURCES,
-    PUBLISH_PLATFORMS,
+    JINA_READER_URL,
     KEYWORDS_FILE,
     KEYWORDS_FILTER_ENABLED,
-    SCHEDULE_ENABLED,
     NEWSNOW_CRAWL_INTERVAL,
     RSS_CRAWL_INTERVAL,
-    SCHEDULE_MIN_INTERVAL,
-    JINA_READER_URL,
 )
+from core import NewsInterpreter, StyleType
+from database import (
+    update_news_content,
+)
+from publishers import DouyinPublisher, WechatMpPublisher, XiaohongshuPublisher
 from sources import (
-    NewsNowCrawler,
-    NewsNowBatchCrawler,
-    PLATFORM_CONFIG,
-    RSSBatchCrawler,
-    RSSFeedConfig,
     DEFAULT_RSS_FEEDS,
+    PLATFORM_CONFIG,
+    NewsNowBatchCrawler,
+    NewsNowCrawler,
+    RSSBatchCrawler,
 )
 from sources.filter import KeywordFilter
-from core import NewsInterpreter, StyleType
-from core.style_manager import prompt_manager
-from publishers import XiaohongshuPublisher, WechatMpPublisher, DouyinPublisher
-from database import (
-    upsert_news,
-    update_news_content,
-    clear_news_content_by_source,
-    save_article,
-    save_publish_record,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -134,16 +124,20 @@ async def fetch_article_content(url: str) -> str:
         return ""
     try:
         from bs4 import BeautifulSoup
+
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            resp = await client.get(url, headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            })
+            resp = await client.get(
+                url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                },
+            )
             resp.raise_for_status()
             resp.encoding = resp.charset_encoding or "utf-8"
             soup = BeautifulSoup(resp.text, "lxml")
@@ -153,8 +147,20 @@ async def fetch_article_content(url: str) -> str:
 
             candidates = [
                 soup.find("article"),
-                soup.find("div", class_=lambda c: c and any(k in str(c).lower() for k in ["article", "content", "post", "entry", "detail", "body"])),
-                soup.find("div", id=lambda i: i and any(k in str(i).lower() for k in ["article", "content", "post", "entry", "detail", "body"])),
+                soup.find(
+                    "div",
+                    class_=lambda c: (
+                        c
+                        and any(k in str(c).lower() for k in ["article", "content", "post", "entry", "detail", "body"])
+                    ),
+                ),
+                soup.find(
+                    "div",
+                    id=lambda i: (
+                        i
+                        and any(k in str(i).lower() for k in ["article", "content", "post", "entry", "detail", "body"])
+                    ),
+                ),
             ]
             main = next((c for c in candidates if c), soup.find("body") or soup)
             paragraphs = main.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li"])
@@ -191,6 +197,7 @@ async def fetch_article_content(url: str) -> str:
 def _clean_jina_content(text: str) -> str:
     """Clean noise from Jina Reader output (headers, nav links, broken images, etc.)."""
     import re
+
     lines = text.split("\n")
     cleaned = []
     skip_patterns = [
@@ -231,9 +238,12 @@ async def fetch_article_content_via_jina(url: str) -> str:
     jina_url = f"{JINA_READER_URL}/{url}"
     try:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            resp = await client.get(jina_url, headers={
-                "Accept": "text/plain",
-            })
+            resp = await client.get(
+                jina_url,
+                headers={
+                    "Accept": "text/plain",
+                },
+            )
             resp.raise_for_status()
             text = resp.text.strip()
             if len(text) > 100:
@@ -266,6 +276,7 @@ def _extract_meta_description(soup) -> str:
     for ld in soup.find_all("script", type="application/ld+json"):
         try:
             import json
+
             data = json.loads(ld.string or "")
             if isinstance(data, dict):
                 for key in ("articleBody", "description", "text"):
@@ -292,8 +303,9 @@ async def ensure_content(item: dict) -> None:
     if existing and existing != summary and not existing.startswith(summary[:50]):
         return
 
-    media_type = (item.get("extra", {}).get("media_type", "article")
-                  if isinstance(item.get("extra"), dict) else "article")
+    media_type = (
+        item.get("extra", {}).get("media_type", "article") if isinstance(item.get("extra"), dict) else "article"
+    )
 
     if media_type == "video":
         await _ensure_video_content(item)
@@ -330,7 +342,7 @@ def _ensure_limited_content(item: dict) -> None:
     """Set limited content for JS-rendered or failed-fetch sources."""
     summary = item.get("summary", "")
     title = item.get("title", "")
-    parts = [f"[全文需在浏览器中查看]"]
+    parts = ["[全文需在浏览器中查看]"]
     if title:
         parts.append(f"标题：{title}")
     if summary and summary != title:
@@ -375,16 +387,20 @@ async def _extract_video_metadata(url: str) -> dict | None:
     """Try to extract metadata from a video page."""
     try:
         from bs4 import BeautifulSoup
+
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            resp = await client.get(url, headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            })
+            resp = await client.get(
+                url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                },
+            )
             resp.raise_for_status()
             resp.encoding = resp.charset_encoding or "utf-8"
             soup = BeautifulSoup(resp.text, "lxml")
@@ -405,6 +421,8 @@ async def _extract_video_metadata(url: str) -> dict | None:
             author_tag = soup.find("meta", attrs={"name": "author"})
             if not author_tag:
                 author_tag = soup.find("meta", attrs={"property": "og:article:author"})
+            if not author_tag and og_title and og_title.get("content"):
+                author_tag = og_title
             if author_tag and author_tag.get("content"):
                 result["author"] = author_tag["content"].strip()
 

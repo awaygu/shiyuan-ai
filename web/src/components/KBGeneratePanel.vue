@@ -26,22 +26,41 @@
     </div>
 
     <div class="gen-body" ref="messagesRef">
-      <div
-        v-for="(msg, i) in messages"
-        :key="i"
-        class="msg-row"
-        :class="msg.role"
-      >
+      <div v-for="(msg, i) in messages" :key="i" class="msg-row" :class="msg.role">
         <div class="msg-avatar">
           <div v-if="msg.role === 'assistant'" class="avatar-ai">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 2L2 7L12 12L22 7L12 2Z"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M2 17L12 22L22 17"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M2 12L12 17L22 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
           </div>
           <div v-else class="avatar-user">我</div>
         </div>
         <div class="msg-content">
           <div class="msg-bubble" v-html="renderMsgHtml(msg)"></div>
           <div
-            v-if="msg.role === 'assistant' && !msg.streaming && msg.content && msg.type === 'article'"
+            v-if="
+              msg.role === 'assistant' && !msg.streaming && msg.content && msg.type === 'article'
+            "
             class="msg-actions"
           >
             <button class="msg-action-btn" @click="copyContent(msg.content)">复制</button>
@@ -77,19 +96,19 @@
           </template>
           <el-option label="小红书" value="xiaohongshu">
             <span class="style-option">
-              <span class="style-dot" style="--c:#ff2442"></span>
+              <span class="style-dot" style="--c: #ff2442"></span>
               <span>小红书</span>
             </span>
           </el-option>
           <el-option label="公众号" value="wechat_mp">
             <span class="style-option">
-              <span class="style-dot" style="--c:#07c160"></span>
+              <span class="style-dot" style="--c: #07c160"></span>
               <span>公众号</span>
             </span>
           </el-option>
           <el-option label="抖音" value="douyin">
             <span class="style-option">
-              <span class="style-dot" style="--c:#000000"></span>
+              <span class="style-dot" style="--c: #000000"></span>
               <span>抖音</span>
             </span>
           </el-option>
@@ -103,9 +122,19 @@
           class="gen-input"
           @keydown.enter.exact="onInputEnter"
         />
-        <button class="send-btn" :disabled="!canSend || generating || preparing" @click="onGenerateClick">
+        <button
+          class="send-btn"
+          :disabled="!canSend || generating || preparing"
+          @click="onGenerateClick"
+        >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-            <path d="M5 12H19M19 12L13 6M19 12L13 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path
+              d="M5 12H19M19 12L13 6M19 12L13 18"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </button>
       </div>
@@ -134,9 +163,10 @@ import WechatImageOptionsDialog from '@/components/WechatImageOptionsDialog.vue'
 import { renderSafeMarkdown } from '@/utils/markdown'
 
 const props = defineProps<{ kbId: string }>()
-const emit = defineEmits<{ 'generating-change': [value: boolean]; 'close': [] }>()
+const emit = defineEmits<{ 'generating-change': [value: boolean]; close: [] }>()
 const store = useNewsStore()
-const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } = useWechatPublish()
+const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } =
+  useWechatPublish()
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -261,26 +291,34 @@ function doGenerate(s: StyleType, extraReqText: string) {
   const convId = store.currentGenConvId
   const docIds = store.kbSelectedDocIds
 
-  kbStreamGenerate(props.kbId, userMsg, s, {
-    onChunk(text) {
-      messages.value[msgIdx].content += text
-      scrollToBottom()
+  kbStreamGenerate(
+    props.kbId,
+    userMsg,
+    s,
+    {
+      onChunk(text) {
+        messages.value[msgIdx].content += text
+        scrollToBottom()
+      },
+      onSources(sources: { filename: string; score: number }[]) {
+        messages.value[msgIdx].sources = sources as KBSource[]
+      },
+      onDone() {
+        pushDone(msgIdx)
+        // 生成成功，清空暂存
+        pendingExtraReq.value = ''
+      },
+      onError(err) {
+        pushError(msgIdx, `生成失败：${err}`)
+        // 失败时恢复用户输入，避免丢失
+        extraReq.value = pendingExtraReq.value
+        pendingExtraReq.value = ''
+      },
     },
-    onSources(sources) {
-      messages.value[msgIdx].sources = sources
-    },
-    onDone() {
-      pushDone(msgIdx)
-      // 生成成功，清空暂存
-      pendingExtraReq.value = ''
-    },
-    onError(err) {
-      pushError(msgIdx, `生成失败：${err}`)
-      // 失败时恢复用户输入，避免丢失
-      extraReq.value = pendingExtraReq.value
-      pendingExtraReq.value = ''
-    },
-  }, docIds, 8, convId)
+    docIds,
+    8,
+    convId
+  )
 }
 
 async function onClearConv() {
@@ -291,11 +329,14 @@ async function onClearConv() {
 }
 
 function copyContent(text: string) {
-  navigator.clipboard.writeText(text).then(() => {
-    ElMessage.success('已复制到剪贴板')
-  }).catch(() => {
-    ElMessage.error('复制失败')
-  })
+  navigator.clipboard
+    .writeText(text)
+    .then(() => {
+      ElMessage.success('已复制到剪贴板')
+    })
+    .catch(() => {
+      ElMessage.error('复制失败')
+    })
 }
 
 const platformLabels: Record<string, string> = {
@@ -317,7 +358,12 @@ async function onPublishCommand(content: string, platform: string) {
 
 async function onPublish(content: string, platform: string, imageOptions?: ImagePublishOptions) {
   const label = platformLabels[platform] || platform
-  const title = content.split('\n').find(l => l.trim() && !l.trim().startsWith('#'))?.trim()?.slice(0, 30) || '知识库文章'
+  const title =
+    content
+      .split('\n')
+      .find(l => l.trim() && !l.trim().startsWith('#'))
+      ?.trim()
+      ?.slice(0, 30) || '知识库文章'
   try {
     await publishByContent(title, content, platform, imageOptions)
     store.startTaskStream()
@@ -466,8 +512,14 @@ defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .msg-row.user {
@@ -524,16 +576,27 @@ defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
   word-break: break-word;
 }
 
-.msg-bubble :deep(p) { margin: 4px 0; }
-.msg-bubble :deep(p:first-child) { margin-top: 0; }
-.msg-bubble :deep(p:last-child) { margin-bottom: 0; }
-.msg-bubble :deep(strong) { font-weight: 600; }
+.msg-bubble :deep(p) {
+  margin: 4px 0;
+}
+.msg-bubble :deep(p:first-child) {
+  margin-top: 0;
+}
+.msg-bubble :deep(p:last-child) {
+  margin-bottom: 0;
+}
+.msg-bubble :deep(strong) {
+  font-weight: 600;
+}
 .msg-bubble :deep(ol),
 .msg-bubble :deep(ul) {
   margin: 6px 0;
   padding-left: 22px;
 }
-.msg-bubble :deep(li) { margin: 3px 0; line-height: 1.7; }
+.msg-bubble :deep(li) {
+  margin: 3px 0;
+  line-height: 1.7;
+}
 .msg-bubble :deep(h1),
 .msg-bubble :deep(h2),
 .msg-bubble :deep(h3),
@@ -542,10 +605,18 @@ defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
   font-weight: 600;
   color: #1e293b;
 }
-.msg-bubble :deep(h1) { font-size: 18px; }
-.msg-bubble :deep(h2) { font-size: 16px; }
-.msg-bubble :deep(h3) { font-size: 15px; }
-.msg-bubble :deep(h4) { font-size: 14px; }
+.msg-bubble :deep(h1) {
+  font-size: 18px;
+}
+.msg-bubble :deep(h2) {
+  font-size: 16px;
+}
+.msg-bubble :deep(h3) {
+  font-size: 15px;
+}
+.msg-bubble :deep(h4) {
+  font-size: 14px;
+}
 .msg-bubble :deep(hr) {
   border: none;
   border-top: 1px solid #eef0f5;
@@ -596,8 +667,14 @@ defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
 }
 
 @keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .msg-actions {
@@ -636,7 +713,9 @@ defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 0;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
   overflow: hidden;
 }
 
@@ -646,7 +725,7 @@ defineExpose({ startGenerate, loadHistory, openDialog, closeDialog })
 }
 
 .style-select {
-  flex-shrink:  0;
+  flex-shrink: 0;
   width: 88px;
   /* 贴满输入区左侧：上下贴边，右侧用分隔线与输入框分界 */
   align-self: stretch;

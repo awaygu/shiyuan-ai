@@ -16,7 +16,10 @@
               <span class="art-id">#{{ art.article_id }}</span>
             </div>
             <el-divider style="margin: 6px 0" />
-            <div class="art-content-preview" v-html="renderMarkdown(art.content.slice(0, 200) + '...')"></div>
+            <div
+              class="art-content-preview"
+              v-html="renderMarkdown(art.content.slice(0, 200) + '...')"
+            ></div>
 
             <div class="art-actions">
               <el-dropdown
@@ -96,7 +99,8 @@ import WechatImageOptionsDialog from '@/components/WechatImageOptionsDialog.vue'
 
 const store = useNewsStore()
 const activeTab = ref('articles')
-const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } = useWechatPublish()
+const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } =
+  useWechatPublish()
 
 async function onPublishCommand(articleId: string, platform: string) {
   if (platform === 'wechat_mp') {
@@ -209,14 +213,26 @@ onMounted(async () => {
   line-height: 1.6;
   margin-bottom: 8px;
 }
-.art-content-preview :deep(h1), .art-content-preview :deep(h2), .art-content-preview :deep(h3) {
+.art-content-preview :deep(h1),
+.art-content-preview :deep(h2),
+.art-content-preview :deep(h3) {
   margin: 4px 0 2px;
   font-weight: 600;
 }
-.art-content-preview :deep(p) { margin: 2px 0; }
-.art-content-preview :deep(ul), .art-content-preview :deep(ol) { padding-left: 18px; margin: 2px 0; }
-.art-content-preview :deep(strong) { font-weight: 600; }
-.art-content-preview :deep(em) { font-style: italic; }
+.art-content-preview :deep(p) {
+  margin: 2px 0;
+}
+.art-content-preview :deep(ul),
+.art-content-preview :deep(ol) {
+  padding-left: 18px;
+  margin: 2px 0;
+}
+.art-content-preview :deep(strong) {
+  font-weight: 600;
+}
+.art-content-preview :deep(em) {
+  font-style: italic;
+}
 
 .art-actions {
   display: flex;
