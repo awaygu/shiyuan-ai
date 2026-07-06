@@ -148,7 +148,7 @@ export const useNewsStore = defineStore('news', () => {
     }
   }
 
-  async function publish(articleId: string, platform: string, imageOptions?: { generate_cover?: boolean; generate_inline_images?: boolean }): Promise<{ task_id: string; status: string }> {
+  async function publish(articleId: string, platform: string, imageOptions?: { generate_cover?: boolean; generate_inline_images?: boolean }): Promise<PublishRecord & { need_login?: boolean }> {
     const res = await publishArticle(articleId, platform, imageOptions)
     startTaskStream()
     showTaskPanel.value = true

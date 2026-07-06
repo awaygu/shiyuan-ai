@@ -192,7 +192,7 @@
 <script setup lang="ts">
 import { UploadFilled, Loading, FolderOpened, Delete, Edit, Search } from '@element-plus/icons-vue'
 import { useNewsStore } from '@/stores'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElInput } from 'element-plus'
 import { ref, nextTick } from 'vue'
 import type { KBDoc } from '@/types'
 import { webSearchKB, ingestTextToKB, type WebSearchItem } from '@/api'

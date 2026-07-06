@@ -166,7 +166,7 @@ function injectCitations(html: string, sources: KBSource[] | undefined): string 
     const s = sources[idx - 1]
     const page = s.page ? ` · 第${s.page}页` : ''
     const tip = `${s.filename}${page}`
-    return `<sup class="cite-ref" data-tip="${escapeAttr(tip)}" data-text="${escapeAttr(s.text || s.preview || '')}">[${idx}]</sup>`
+    return `<sup class="cite-ref" data-tip="${escapeAttr(tip)}" data-text="${escapeAttr(s.preview || '')}">[${idx}]</sup>`
   })
 }
 
@@ -311,7 +311,7 @@ async function sendChat() {
       scrollToBottom()
     },
     onSources(sources) {
-      messages.value[msgIdx].sources = sources
+      messages.value[msgIdx].sources = sources as KBSource[]
     },
     onMeta(meta) {
       if (meta.message_type) {

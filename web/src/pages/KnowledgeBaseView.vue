@@ -124,7 +124,7 @@ import TaskPanel from '@/components/TaskPanel.vue'
 import { useNewsStore } from '@/stores'
 import type { StyleType } from '@/types'
 import { getKbIcon } from '@/types'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElInput } from 'element-plus'
 import { Edit } from '@element-plus/icons-vue'
 
 const props = defineProps<{ kbId: string }>()
@@ -269,7 +269,9 @@ async function ensureConv() {
     return
   }
   const conv = await store.createConv()
-  store.currentConvId = conv.conv_id
+  if (conv) {
+    store.currentConvId = conv.conv_id
+  }
 }
 
 async function initKB(kbId: string) {

@@ -1,10 +1,8 @@
 <template>
   <router-view />
-  <FloatingAgent />
 </template>
 
 <script setup lang="ts">
-import FloatingAgent from '@/components/FloatingAgent.vue'
 </script>
 
 <style>

@@ -267,7 +267,7 @@ function doGenerate(s: StyleType, extraReqText: string) {
       scrollToBottom()
     },
     onSources(sources) {
-      messages.value[msgIdx].sources = sources
+      messages.value[msgIdx].sources = sources as KBSource[]
     },
     onDone() {
       pushDone(msgIdx)
