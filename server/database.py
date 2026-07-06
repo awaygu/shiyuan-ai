@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,7 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent / "news_ai.db"
+DB_PATH = Path(os.getenv("NEWS_AI_DB_PATH", str(Path(__file__).parent / "news_ai.db")))
 
 _db: aiosqlite.Connection | None = None
 

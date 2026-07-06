@@ -52,6 +52,14 @@ specs/*.md
 interview/
 .claude/
 .opencode/
+.trees/
 
 # 调试
 debug_screenshots/
+
+# 测试 / 覆盖率
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+web/coverage/
