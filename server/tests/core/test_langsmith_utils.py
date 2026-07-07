@@ -7,8 +7,6 @@ tracing 关闭时装饰器必须透传原函数、零副作用；开启时透传
 
 from __future__ import annotations
 
-import pytest
-
 
 def _set_tracing_off(monkeypatch):
     import core.langsmith_utils as ls_utils

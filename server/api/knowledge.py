@@ -201,7 +201,7 @@ async def _ingest_text(
     if not text.strip():
         raise HTTPException(400, "内容为空，无法入库")
 
-    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+    from config import LLM_API_KEY, LLM_BASE_URL
     from rag.loader import PageText
 
     doc_id = uuid.uuid4().hex[:16]
@@ -296,7 +296,7 @@ async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
 
     from openai import OpenAI as LLMClient
 
-    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+    from config import LLM_API_KEY, LLM_BASE_URL
 
     doc_summary = ""
     try:

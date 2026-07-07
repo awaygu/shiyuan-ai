@@ -121,11 +121,18 @@ class DocumentLoader:
     def _load_image(self, path: Path) -> list[PageText]:
         from io import BytesIO
 
-        from PIL import Image
         from langchain_core.messages import HumanMessage, SystemMessage
         from langchain_openai import ChatOpenAI
+        from PIL import Image
 
-        from config import DASHSCOPE_API_KEY, KB_VISION_BASE_URL, KB_VISION_MODEL, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+        from config import (
+            DASHSCOPE_API_KEY,
+            KB_VISION_BASE_URL,
+            KB_VISION_MODEL,
+            LLM_API_KEY,
+            LLM_BASE_URL,
+            LLM_MODEL,
+        )
         from core.style_manager import prompt_manager
 
         img = Image.open(str(path))
