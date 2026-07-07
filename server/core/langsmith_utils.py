@@ -59,6 +59,7 @@ def traceable(
         ``langsmith.traceable``。
     """
     if not LANGSMITH_TRACING or _traceable is None:
+
         def _passthrough(fn: Callable[..., Any]) -> Callable[..., Any]:
             # 透传：保持原函数不变，无任何 LangSmith 副作用。
             return fn

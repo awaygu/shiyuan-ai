@@ -170,10 +170,15 @@ class DocumentLoader:
             timeout=30,
             max_retries=2,
         )
-        title_text = title_llm.invoke([
-            SystemMessage(content=prompt_manager.title_generator_system_prompt),
-            HumanMessage(content=ocr_text.strip()),
-        ]).content or ""
+        title_text = (
+            title_llm.invoke(
+                [
+                    SystemMessage(content=prompt_manager.title_generator_system_prompt),
+                    HumanMessage(content=ocr_text.strip()),
+                ]
+            ).content
+            or ""
+        )
         summary_name = title_text.strip()[:15]
 
         return [PageText(page=1, text=ocr_text.strip())], summary_name
