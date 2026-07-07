@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 
 import dashscope
 from dashscope import TextEmbedding
 
 from config import DASHSCOPE_API_KEY, KB_EMBEDDING_DIM, KB_EMBEDDING_MODEL
+from core.langsmith_utils import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +22,10 @@ EMBEDDING_MODEL = KB_EMBEDDING_MODEL
 BATCH_SIZE = 10
 RATE_LIMIT_CALLS = 5
 RATE_LIMIT_WINDOW = 1.0
+
+# 用于嵌入的线程池；Python 3.10 的 asyncio.to_thread 不拷贝 contextvars，
+# 这里通过 submit + copy_context().run 保证 LangSmith trace 上下文能传递到子线程。
+_embed_executor = ThreadPoolExecutor(thread_name_prefix="dashscope_embed_")
 
 
 class DashScopeEmbedding:
@@ -37,6 +44,11 @@ class DashScopeEmbedding:
                 time.sleep(sleep_time)
         self._call_timestamps.append(time.monotonic())
 
+    @traceable(
+        "embed: dashscope_text_embedding",
+        tags=["embedding"],
+        metadata={"model": EMBEDDING_MODEL, "batch_size": BATCH_SIZE},
+    )
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
             return []
@@ -58,7 +70,11 @@ class DashScopeEmbedding:
         return result[0]
 
     async def embed_async(self, texts: Sequence[str]) -> list[list[float]]:
-        return await asyncio.to_thread(self.embed, texts)
+        loop = asyncio.get_running_loop()
+        ctx = contextvars.copy_context()
+        return await loop.run_in_executor(_embed_executor, ctx.run, self.embed, texts)
 
     async def embed_query_async(self, text: str) -> list[float]:
-        return await asyncio.to_thread(self.embed_query, text)
+        loop = asyncio.get_running_loop()
+        ctx = contextvars.copy_context()
+        return await loop.run_in_executor(_embed_executor, ctx.run, self.embed_query, text)

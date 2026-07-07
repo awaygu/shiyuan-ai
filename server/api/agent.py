@@ -13,8 +13,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from config import NEWS_SOURCES
+from config import LLM_MODEL, NEWS_SOURCES
 from core.interpreter import NewsInterpreter
+from core.langsmith_utils import build_langsmith_config
 from core.style_manager import build_prompt_display_text, prompt_manager
 
 from . import deps
@@ -815,7 +816,24 @@ async def agent_chat_stream(req: AgentChatRequest):
         yield f"data: {json.dumps({'type': 'prompt', 'content': prompt_text}, ensure_ascii=False)}\n\n"
 
         # 调用 LangGraph Agent
-        config = {"configurable": {"thread_id": conv_id}}
+        # LangSmith 元数据：run_name 在 UI 列表直接显示用户问题；tags 支持按特征筛选；
+        # metadata 记录排查所需的上下文（模型、新闻、联网搜索等）
+        query_preview = req.message.replace("\n", " ")[:80]
+        config = build_langsmith_config(
+            thread_id=conv_id,
+            run_name=f"agent: {query_preview}" if query_preview else "agent",
+            tags=["agent"] + (["web_search"] if req.web_search else []),
+            metadata={
+                "conversation_id": conv_id,
+                "feature": "agent",
+                "user_query": req.message[:200],
+                "model": LLM_MODEL,
+                "news_ids": req.news_ids,
+                "current_news_id": req.current_news_id or "",
+                "web_search": req.web_search,
+                "is_new_conversation": is_new_conversation,
+            },
+        )
 
         try:
             stream = agent.astream_events(

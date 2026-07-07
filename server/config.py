@@ -110,6 +110,13 @@ WEB_SEARCH_ENGINE = os.getenv("WEB_SEARCH_ENGINE", "tavily")  # kimi / tavily
 MOONSHOT_API_KEY = os.getenv("MOONSHOT_API_KEY", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
+# LangSmith Tracing (optional, off by default)
+# 配置后可到 https://smith.langchain.com 查看每次 LLM 调用的 trace
+LANGSMITH_TRACING = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY", "")
+LANGSMITH_PROJECT = os.getenv("LANGSMITH_PROJECT", "shiyuan-ai")
+LANGSMITH_ENDPOINT = os.getenv("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com")
+
 # Memory (Short-term)
 MEMORY_DB_PATH = os.getenv("MEMORY_DB_PATH", str(Path(__file__).parent / "data" / "agent_memory.db"))
 SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "deepseek-v4-flash")

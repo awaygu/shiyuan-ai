@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 _GARBLED_RE = re.compile(
     r"cid\(\d+\)"  # pdfplumber 的 cid 占位符
     r"|[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]"  # C0/C1 控制字符（保留 \n\t\r）
-    r"|[​-‏ - ﻿]"  # 零宽字符、换行分隔符、BOM
+    r"|[​-‏-﻿]"  # 零宽字符、换行分隔符、BOM
     r"|�"  # Unicode 替换字符（�）
 )
 
@@ -121,8 +121,9 @@ class DocumentLoader:
     def _load_image(self, path: Path) -> list[PageText]:
         from io import BytesIO
 
-        from openai import OpenAI
         from PIL import Image
+        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_openai import ChatOpenAI
 
         from config import DASHSCOPE_API_KEY, KB_VISION_BASE_URL, KB_VISION_MODEL, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
         from core.style_manager import prompt_manager
@@ -138,42 +139,35 @@ class DocumentLoader:
         mime = "image/png" if fmt == "PNG" else "image/jpeg"
         data_url = f"data:{mime};base64,{b64}"
 
-        client = OpenAI(
+        vision_llm = ChatOpenAI(
             api_key=DASHSCOPE_API_KEY,
             base_url=KB_VISION_BASE_URL,
-            timeout=120.0,
+            model=KB_VISION_MODEL,
+            timeout=120,
             max_retries=2,
         )
-        completion = client.chat.completions.create(
-            model=KB_VISION_MODEL,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": data_url}},
-                        {"type": "text", "text": prompt_manager.ocr_extraction_prompt},
-                    ],
-                }
-            ],
+        ocr_msg = HumanMessage(
+            content=[
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": prompt_manager.ocr_extraction_prompt},
+            ]
         )
-        ocr_text = completion.choices[0].message.content or ""
+        ocr_text = vision_llm.invoke([ocr_msg]).content or ""
         if not ocr_text.strip():
             return [], ""
 
-        llm_client = OpenAI(
+        title_llm = ChatOpenAI(
             api_key=LLM_API_KEY,
             base_url=LLM_BASE_URL,
-            timeout=30.0,
+            model=LLM_MODEL,
+            timeout=30,
             max_retries=2,
         )
-        summary_completion = llm_client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": prompt_manager.title_generator_system_prompt},
-                {"role": "user", "content": ocr_text.strip()},
-            ],
-        )
-        summary_name = (summary_completion.choices[0].message.content or "").strip()[:15]
+        title_text = title_llm.invoke([
+            SystemMessage(content=prompt_manager.title_generator_system_prompt),
+            HumanMessage(content=ocr_text.strip()),
+        ]).content or ""
+        summary_name = title_text.strip()[:15]
 
         return [PageText(page=1, text=ocr_text.strip())], summary_name
 

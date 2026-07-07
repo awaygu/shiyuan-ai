@@ -536,7 +536,11 @@ async def get_rag_graph():
 
 
 async def migrate_history(conv_id: str) -> list[BaseMessage]:
-    """从 kb_messages 加载旧对话历史，转为 BaseMessage 列表。"""
+    """从 kb_messages 加载旧对话历史，转为 BaseMessage 列表。
+
+    仅加载 type='chat' 的消息；文章生成（type='article'）使用独立会话命名空间，
+    不应进入 RAG 问答上下文，避免生成文章时遗留的连续 User 消息被喂给 LLM。
+    """
     from database import load_messages
 
     old_msgs = await load_messages(conv_id)
@@ -545,6 +549,9 @@ async def migrate_history(conv_id: str) -> list[BaseMessage]:
 
     result = []
     for m in old_msgs:
+        # 文章生成会话的消息不进入聊天历史上下文
+        if m.get("type") == "article":
+            continue
         role = m.get("role", "")
         content = m.get("content", "")
         if role == "user":

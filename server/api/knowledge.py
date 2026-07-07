@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from openai import OpenAI as LLMClient
 from pydantic import BaseModel, Field
 
 from config import (
@@ -23,6 +24,7 @@ from config import (
     TEMPERATURE_GENERATE,
     UPLOAD_DIR,
 )
+from core.langsmith_utils import build_langsmith_config
 from core.style_manager import build_prompt_display_text, prompt_manager
 from database import (
     clear_kb_messages,
@@ -84,6 +86,30 @@ def _build_rag_prompt_text(
             ("【联网搜索结果】", web_ctx),
         ],
     )
+
+
+def _summarize_text(
+    client: LLMClient,
+    text: str,
+    *,
+    run_name: str,
+    max_chars: int = 3000,
+) -> str:
+    """使用 LLM 生成文档摘要，供文本入库与文件入库共用。"""
+    from core.langsmith_utils import traceable
+
+    @traceable(run_name, tags=["kb_upload"], metadata={"model": LLM_MODEL})
+    def _call(t: str) -> str:
+        completion = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": prompt_manager.doc_summary_system_prompt},
+                {"role": "user", "content": t},
+            ],
+        )
+        return (completion.choices[0].message.content or "").strip()
+
+    return _call(text[:max_chars])
 
 
 class CreateKBRequest(BaseModel):
@@ -175,8 +201,6 @@ async def _ingest_text(
     if not text.strip():
         raise HTTPException(400, "内容为空，无法入库")
 
-    from openai import OpenAI as LLMClient
-
     from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
     from rag.loader import PageText
 
@@ -185,15 +209,7 @@ async def _ingest_text(
     doc_summary = ""
     try:
         llm_client = LLMClient(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=30.0, max_retries=2)
-        summary_text = text[:3000]
-        summary_completion = llm_client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": prompt_manager.doc_summary_system_prompt},
-                {"role": "user", "content": summary_text},
-            ],
-        )
-        doc_summary = (summary_completion.choices[0].message.content or "").strip()
+        doc_summary = _summarize_text(llm_client, text, run_name="kb: doc_summary (text)")
     except Exception as e:
         logger.warning("Summary generation failed for %s: %s", doc_id, e)
 
@@ -285,15 +301,7 @@ async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
     doc_summary = ""
     try:
         llm_client = LLMClient(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=30.0, max_retries=2)
-        summary_text = doc.text[:3000]
-        summary_completion = llm_client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": prompt_manager.doc_summary_system_prompt},
-                {"role": "user", "content": summary_text},
-            ],
-        )
-        doc_summary = (summary_completion.choices[0].message.content or "").strip()
+        doc_summary = _summarize_text(llm_client, doc.text, run_name="kb: doc_summary (file)")
     except Exception as e:
         logger.warning("Summary generation failed for %s: %s", doc_id, e)
 
@@ -572,26 +580,29 @@ async def get_suggestions(kb_id: str):
     summaries = [d.get("summary", "") for d in docs if d.get("summary")]
     doc_names = [d["filename"] for d in docs]
 
-    from openai import OpenAI as LLMClient
-
-    from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_openai import ChatOpenAI
 
     try:
-        llm_client = LLMClient(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=30.0, max_retries=2)
+        llm = ChatOpenAI(
+            model=LLM_MODEL,
+            api_key=LLM_API_KEY,
+            base_url=LLM_BASE_URL,
+            timeout=30,
+            max_retries=2,
+        )
         context = ""
         if summaries:
             context = "文档概要：\n" + "\n".join(f"- {s}" for s in summaries[:5])
         else:
             context = "文档列表：" + "、".join(doc_names[:10])
 
-        resp = llm_client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": prompt_manager.question_generator_system_prompt},
-                {"role": "user", "content": context},
-            ],
-        )
-        text = (resp.choices[0].message.content or "").strip()
+        messages = [
+            SystemMessage(content=prompt_manager.question_generator_system_prompt),
+            HumanMessage(content=context),
+        ]
+        text = (await llm.ainvoke(messages)).content or ""
+        text = text.strip()
         suggestions = [line.strip().lstrip("0123456789.-) ") for line in text.split("\n") if line.strip()]
         return {"suggestions": suggestions[:5]}
     except Exception as e:
@@ -884,7 +895,25 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
 
     rag_graph = await get_rag_graph()
 
-    config = {"configurable": {"thread_id": conv_id}}
+    # LangSmith 元数据：run_name 在 UI 列表直接显示用户问题；tags 支持按知识库/特征筛选；
+    # metadata 记录排查所需的上下文（模型、知识库、检索参数等）
+    query_preview = req.message.replace("\n", " ")[:80]
+    config = build_langsmith_config(
+        thread_id=conv_id,
+        run_name=f"kb_chat: {query_preview}" if query_preview else "kb_chat",
+        tags=["kb_chat", f"kb:{kb['name']}"],
+        metadata={
+            "conversation_id": conv_id,
+            "feature": "kb_chat",
+            "kb_id": kb_id,
+            "kb_name": kb["name"],
+            "user_query": req.message[:200],
+            "model": LLM_MODEL,
+            "doc_ids": req.doc_ids,
+            "top_k": req.top_k,
+            "web_search": req.web_search,
+        },
+    )
 
     existing_state = await rag_graph.aget_state(config)
     if not existing_state.values or not existing_state.values.get("messages"):
@@ -1091,7 +1120,10 @@ async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
     if vector_store.total_vectors == 0:
         raise HTTPException(400, "Knowledge base is empty. Please upload documents first.")
 
-    query = req.message or "总结知识库核心内容"
+    # 空输入时原样下传，由 _stream_kb_article 统一兜底默认值并决定是否保存 user 消息；
+    # 在此处提前替换会架空下游 has_user_input 判断，导致占位 query 被当真实输入存进历史，
+    # 后续生成会因历史 + 本次叠加而在一次 LLM 调用里出现重复 User 消息。
+    query = req.message
     # 生成文章使用独立会话命名空间，与问答会话（kb_{kb_id} / UUID）物理隔离
     conv_id = req.conv_id or f"gen_{kb_id}"
 

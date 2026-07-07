@@ -13,6 +13,8 @@ from dataclasses import dataclass
 import httpx
 from PIL import Image
 
+from core.langsmith_utils import traceable
+
 logger = logging.getLogger(__name__)
 
 DASHSCOPE_GEN_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
@@ -48,6 +50,11 @@ class ImageGenerator:
                 if attempt > retries:
                     raise
 
+    @traceable(
+        "image: dashscope_generate",
+        tags=["image_gen"],
+        metadata={"model": "qwen-image-2.0-pro"},
+    )
     async def _call_api(
         self,
         prompt: str,

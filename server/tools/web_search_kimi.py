@@ -33,6 +33,7 @@ async def web_search_kimi(query: str) -> str:
     from openai import AsyncOpenAI
 
     from config import MOONSHOT_API_KEY
+    from core.langsmith_utils import traceable
 
     # Kimi $web_search 由服务端先搜索再生成，整体耗时较长；
     # 单次 chat 请求设 120s，并允许最多 2 次重试，覆盖偶发超时。
@@ -48,6 +49,23 @@ async def web_search_kimi(query: str) -> str:
         {"role": "user", "content": query},
     ]
 
+    @traceable("web_search: kimi_chat_round", tags=["web_search", "kimi"], metadata={"model": "kimi-k2.6"})
+    async def _kimi_chat(msgs: list) -> object:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
+            return await client.chat.completions.create(
+                model="kimi-k2.6",
+                messages=msgs,
+                max_tokens=4096,
+                extra_body={"thinking": {"type": "disabled"}},
+                tools=[
+                    {
+                        "type": "builtin_function",
+                        "function": {"name": "$web_search"},
+                    }
+                ],
+            )
+
     # 防御：tool_calls 循环最多走 5 轮，避免异常情况下死循环。
     max_rounds = 5
     finish_reason = None
@@ -58,20 +76,7 @@ async def web_search_kimi(query: str) -> str:
         while (finish_reason is None or finish_reason == "tool_calls") and rounds < max_rounds:
             rounds += 1
             logger.info("Web search (Kimi): calling Kimi API for query=%s (round %d)", query, rounds)
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
-                response = await client.chat.completions.create(
-                    model="kimi-k2.6",
-                    messages=messages,
-                    max_tokens=4096,
-                    extra_body={"thinking": {"type": "disabled"}},
-                    tools=[
-                        {
-                            "type": "builtin_function",
-                            "function": {"name": "$web_search"},
-                        }
-                    ],
-                )
+            response = await _kimi_chat(messages)
 
             choice = response.choices[0]
             finish_reason = choice.finish_reason
