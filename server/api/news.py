@@ -7,6 +7,9 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query
 
+from config import NEWS_SOURCES
+from database import clear_news_content_by_source, upsert_news
+
 from . import deps
 
 logger = logging.getLogger(__name__)
@@ -34,7 +37,7 @@ async def _bg_crawl_and_save(source: str, crawler) -> None:
                 new_items.append(item_dict)
                 new_count += 1
         if new_items:
-            await deps.upsert_news(new_items)
+            await upsert_news(new_items)
     logger.info("[refresh] %s done: %d total, %d new", source, len(items), new_count)
 
 
@@ -77,7 +80,7 @@ async def refresh_news():
                 new_count += 1
 
         if new_items:
-            await deps.upsert_news(new_items)
+            await upsert_news(new_items)
     return {"total": len(deps.news_store), "new": new_count, "total_raw": len(all_raw), "results": results}
 
 
@@ -153,9 +156,9 @@ async def refresh_news_source(source: str):
 
 @router.post("/news/clear-cache/{source}")
 async def clear_news_content_cache(source: str):
-    if source not in deps.NEWS_SOURCES:
+    if source not in NEWS_SOURCES:
         raise HTTPException(400, f"Unknown source: {source}")
-    count = await deps.clear_news_content_by_source(source)
+    count = await clear_news_content_by_source(source)
     async with deps.news_lock:
         for item in deps.news_store:
             if item.get("source") == source:
@@ -165,7 +168,7 @@ async def clear_news_content_cache(source: str):
 
 @router.get("/sources")
 async def get_sources():
-    return {"sources": deps.NEWS_SOURCES}
+    return {"sources": NEWS_SOURCES}
 
 
 @router.get("/newsnow/platforms")
@@ -195,7 +198,7 @@ async def refresh_newsnow():
                 new_items.append(item_dict)
 
         if new_items:
-            await deps.upsert_news(new_items)
+            await upsert_news(new_items)
 
     return {
         "total_new": len(new_items),
@@ -247,7 +250,7 @@ async def refresh_rss():
                 new_items.append(item_dict)
 
         if new_items:
-            await deps.upsert_news(new_items)
+            await upsert_news(new_items)
 
     return {
         "total_new": len(new_items),

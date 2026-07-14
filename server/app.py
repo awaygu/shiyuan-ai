@@ -69,7 +69,12 @@ async def _wait_for_newsnow():
 
 
 async def lifespan(app: FastAPI):
-    import api.deps as _d
+    # 直接对源模块（stores / schedule_state）赋值，而不是对 deps 赋值：
+    # deps 已将 news_store/article_store/publish_log/schedule_running 等改为
+    # 通过 __getattr__ 实时转发到源模块，若 `_d.news_store = X` 只会改 deps
+    # 命名空间，不会更新 stores 模块，导致共享状态割裂。
+    import api.schedule_state as _sch
+    import api.stores as _s
 
     await _wait_for_newsnow()
 
@@ -90,8 +95,8 @@ async def lifespan(app: FastAPI):
             persisted_news = None
 
     if persisted_news:
-        _d.news_store = persisted_news
-        logger.info("Loaded %d news items from DB", len(_d.news_store))
+        _s.news_store = persisted_news
+        logger.info("Loaded %d news items from DB", len(_s.news_store))
     else:
         logger.info("Crawling all sources on startup...")
         newsnow_results = await newsnow_batch.crawl_all()
@@ -112,19 +117,19 @@ async def lifespan(app: FastAPI):
         # 增量入库：已存在的 news_id 跳过，避免全量 DELETE+INSERT
         if new_items:
             await upsert_news(new_items)
-        _d.news_store.extend(new_items)
+        _s.news_store.extend(new_items)
 
-        logger.info("Total news items: %d (filtered from %d)", len(_d.news_store), len(all_raw))
+        logger.info("Total news items: %d (filtered from %d)", len(_s.news_store), len(all_raw))
 
-    _d.article_store = await load_articles()
-    _d.publish_log = await load_publish_log()
+    _s.article_store = await load_articles()
+    _s.publish_log = await load_publish_log()
 
-    _d.schedule_running = SCHEDULE_ENABLED
-    if _d.schedule_running:
+    _sch.schedule_running = SCHEDULE_ENABLED
+    if _sch.schedule_running:
         logger.info(
             "Schedule enabled: NewsNow every %ds, RSS every %ds",
-            _d.newsnow_interval,
-            _d.rss_interval,
+            _sch.newsnow_interval,
+            _sch.rss_interval,
         )
         from api.schedule import _newsnow_crawl_loop, _rss_crawl_loop
 

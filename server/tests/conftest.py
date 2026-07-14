@@ -29,7 +29,7 @@ os.environ["TAVILY_API_KEY"] = "dummy"
 # ruff: noqa: E402
 from fastapi.testclient import TestClient
 
-import api.deps as deps
+import api.crawlers as crawlers
 import app as app_module
 import database as db
 
@@ -61,9 +61,11 @@ async def client(monkeypatch, tmp_path) -> TestClient:
     monkeypatch.setattr(db, "_db", None)
 
     # Avoid any real network calls during lifespan / startup.
+    # newsnow_batch / rss_batch 现归 crawlers 模块所有（deps 通过 __getattr__/
+    # re-export 转发到同一对象），直接 patch 源模块上的对象方法。
     monkeypatch.setattr(app_module, "check_newsnow_health", _true)
-    monkeypatch.setattr(deps.newsnow_batch, "crawl_all", _empty_dict)
-    monkeypatch.setattr(deps.rss_batch, "crawl_all", _empty_dict)
+    monkeypatch.setattr(crawlers.newsnow_batch, "crawl_all", _empty_dict)
+    monkeypatch.setattr(crawlers.rss_batch, "crawl_all", _empty_dict)
 
     with TestClient(app_module.app) as test_client:
         yield test_client

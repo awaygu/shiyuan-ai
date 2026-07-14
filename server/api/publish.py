@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from database import save_publish_record
 from publishers import BrowserPublisher, DouyinPublisher, WechatMpPublisher, XiaohongshuPublisher
 from publishers.wechat_mp import WECHAT_IP_WHITELIST_ERROR, WechatApiError
 
@@ -162,7 +163,7 @@ async def _run_publish_task(
 
     async with deps.article_lock:
         deps.publish_log.append(record)
-        await deps.save_publish_record(record)
+        await save_publish_record(record)
 
     if result.success:
         await task_manager.update_task(

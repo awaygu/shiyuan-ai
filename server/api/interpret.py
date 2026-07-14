@@ -10,6 +10,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from database import save_article
+
 from . import deps
 
 logger = logging.getLogger(__name__)
@@ -91,7 +93,7 @@ async def generate_article(req: GenerateArticleRequest):
 
     async with deps.article_lock:
         deps.article_store.append(article)
-        await deps.save_article(article)
+        await save_article(article)
 
     return article
 
@@ -210,7 +212,7 @@ async def generate_article_stream(req: GenerateArticleRequest):
         }
         async with deps.article_lock:
             deps.article_store.append(article)
-            await deps.save_article(article)
+            await save_article(article)
 
         done = json.dumps({"type": "done", "article_id": article_id}, ensure_ascii=False)
         yield f"data: {done}\n\n"

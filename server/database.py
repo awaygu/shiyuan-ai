@@ -36,110 +36,20 @@ async def close_db() -> None:
 
 
 async def init_db() -> None:
-    db = await get_db()
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS news (
-            news_id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            summary TEXT,
-            content TEXT,
-            source TEXT,
-            url TEXT,
-            published_at TEXT,
-            extra TEXT
-        )
-    """)
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS articles (
-            article_id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            content TEXT,
-            style TEXT,
-            news_ids TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS publish_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            article_id TEXT,
-            platform TEXT,
-            success INTEGER,
-            url TEXT,
-            timestamp TEXT,
-            extra TEXT
-        )
-    """)
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS kb_documents (
-            doc_id TEXT PRIMARY KEY,
-            kb_id TEXT NOT NULL DEFAULT 'default',
-            filename TEXT NOT NULL,
-            file_type TEXT,
-            chunk_count INTEGER DEFAULT 0,
-            file_size INTEGER DEFAULT 0,
-            upload_time TEXT DEFAULT (datetime('now')),
-            status TEXT DEFAULT 'ready',
-            summary TEXT DEFAULT ''
-        )
-    """)
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS kb_chunks (
-            chunk_id TEXT PRIMARY KEY,
-            doc_id TEXT NOT NULL,
-            chunk_index INTEGER DEFAULT 0,
-            page INTEGER DEFAULT 0,
-            text TEXT NOT NULL,
-            FOREIGN KEY (doc_id) REFERENCES kb_documents(doc_id) ON DELETE CASCADE
-        )
-    """)
-    try:
-        await db.execute("ALTER TABLE kb_chunks ADD COLUMN page INTEGER DEFAULT 0")
-    except Exception:
-        pass
-    try:
-        await db.execute("ALTER TABLE kb_documents ADD COLUMN kb_id TEXT NOT NULL DEFAULT 'default'")
-    except Exception:
-        pass
-    try:
-        await db.execute("ALTER TABLE kb_documents ADD COLUMN summary TEXT DEFAULT ''")
-    except Exception:
-        pass
-    try:
-        await db.execute("ALTER TABLE kb_documents ADD COLUMN source_url TEXT DEFAULT ''")
-    except Exception:
-        pass
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS knowledge_bases (
-            kb_id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS kb_conversations (
-            conv_id TEXT PRIMARY KEY,
-            kb_id TEXT NOT NULL,
-            title TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (kb_id) REFERENCES knowledge_bases(kb_id) ON DELETE CASCADE
-        )
-    """)
-    await db.execute("""
-        CREATE TABLE IF NOT EXISTS kb_messages (
-            msg_id TEXT PRIMARY KEY,
-            conv_id TEXT NOT NULL,
-            role TEXT NOT NULL,
-            content TEXT DEFAULT '',
-            type TEXT DEFAULT 'chat',
-            sources TEXT DEFAULT '',
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (conv_id) REFERENCES kb_conversations(conv_id) ON DELETE CASCADE
-        )
-    """)
-    await db.commit()
+    """初始化数据库 schema。
+
+    委托给 migrations 运行器：创建 schema_version 表后，按版本顺序执行
+    migrations/*.sql 中未应用的迁移。原 init_db 里的 8 个 CREATE TABLE
+    及 4 个 try/except ALTER TABLE 已迁入 migrations/0001_initial.sql，
+    其中 source_url 提升进 kb_documents 的 CREATE TABLE（消除原本仅靠
+    ALTER 存在的隐患）。
+
+    运行器通过 get_db() 拿实时连接，测试中 conftest 对 DB_PATH/_db 的
+    monkeypatch 在此处生效，每个测试的空库都会正确跑 0001_initial。
+    """
+    from migrations.runner import run_migrations
+
+    await run_migrations(get_db)
     logger.info("Database initialized: %s", DB_PATH)
 
 

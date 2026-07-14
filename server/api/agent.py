@@ -17,6 +17,7 @@ from config import LLM_MODEL, NEWS_SOURCES
 from core.interpreter import NewsInterpreter
 from core.langsmith_utils import build_langsmith_config
 from core.style_manager import build_prompt_display_text, prompt_manager
+from database import save_article, upsert_news
 
 from . import deps
 from .interpret import LIMITED_CONTENT_MSG
@@ -266,7 +267,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
             filtered = deps.kw_filter.filter_newsitems(all_raw)
             new_items = [item.to_dict() for item in filtered]
             deps.news_store.extend(new_items)
-            await deps.upsert_news(new_items)
+            await upsert_news(new_items)
         return json.dumps(
             {
                 "total_news": len(deps.news_store),
@@ -301,7 +302,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
                     new_items.append(item_dict)
                     new_count += 1
             if new_items:
-                await deps.upsert_news(new_items)
+                await upsert_news(new_items)
         return json.dumps({"source": source, "total": len(items), "new": new_count}, ensure_ascii=False)
 
     @tool
@@ -474,7 +475,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
 
         async with deps.article_lock:
             deps.article_store.append(article)
-            await deps.save_article(article)
+            await save_article(article)
 
         return json.dumps(
             {
@@ -948,7 +949,7 @@ async def execute_action(req: ExecuteRequest):
             filtered = deps.kw_filter.filter_newsitems(all_raw)
             new_items = [item.to_dict() for item in filtered]
             deps.news_store.extend(new_items)
-            await deps.upsert_news(new_items)
+            await upsert_news(new_items)
         return {"success": True, "action": action, "total_news": len(deps.news_store), "results": results}
 
     elif action == "refresh_source":
@@ -977,7 +978,7 @@ async def execute_action(req: ExecuteRequest):
                     new_items.append(item_dict)
                     new_count += 1
             if new_items:
-                await deps.upsert_news(new_items)
+                await upsert_news(new_items)
         return {"success": True, "action": action, "source": source, "total": len(items), "new": new_count}
 
     else:

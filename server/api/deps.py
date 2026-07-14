@@ -1,443 +1,188 @@
-"""Shared state and dependencies for all routers.
+"""Shared state and dependencies for all routers (aggregation layer).
 
-Centralizes in-memory stores, singletons, locks, and helper functions
-so that routers can import from one place without circular dependencies.
+This module is the backward-compatible aggregation/re-export point for
+the ``api`` package. The implementation has been split into focused
+submodules:
+
+- ``api.constants``   — SSE headers and other cross-router constants
+- ``api.stores``      — in-memory lists (news/article/publish), locks, lookups
+- ``api.schedule_state`` — scheduling knobs and crawl timestamps
+- ``api.crawlers``    — NewsNow crawler registry + batch crawler instances
+- ``api.singletons``  — interpreter, publishers, keyword filter, resolve_style
+- ``api.content``     — article fetching/cleaning/ensure_content (~245 lines)
+
+Routers keep importing as before — ``from . import deps; deps.X`` and
+``from .deps import X`` both still work because everything is re-exported
+here.
+
+State names that are reassigned at runtime by ``app.py`` lifespan and
+the schedule router (``news_store``, ``article_store``, ``publish_log``,
+``schedule_running``, ``newsnow_interval``, ``rss_interval``,
+``last_newsnow_crawl``, ``last_rss_crawl``) are NOT captured by a plain
+``from .stores import news_store`` — that would freeze the value at
+import time and silently break sharing once ``app.py`` reassigns the
+source module. Instead they are resolved live via the module-level
+``__getattr__`` (PEP 562) so ``deps.news_store`` always reflects the
+current ``stores.news_store``. Mutations (``deps.news_store.append``)
+go straight to the underlying object; rebinds made through ``deps``
+(e.g. ``deps.schedule_running = True`` in ``schedule.py``) shadow the
+delegation locally, which is self-consistent because all readers go
+through ``deps``.
 """
+
+# ruff: noqa: F822  __all__ lists runtime state names resolved via __getattr__ (PEP 562),
+# which ruff's static analysis cannot see, so flag them as "undefined" — suppress file-wide.
 
 from __future__ import annotations
 
-import asyncio
-import logging
-from typing import Any
+# 保留 deps 原有从第三方库/重导出的符号，供引用方以 deps.X 形式访问（如
+# deps.httpx、deps.HTTPException）。这些在拆分后 deps 本体不再直接使用，
+# 仅作 re-export，故标注 noqa: F401。
+import httpx  # noqa: F401
+from fastapi import HTTPException  # noqa: F401
 
-import httpx
-from fastapi import HTTPException
-
-from config import (
+# 保留 deps 原有从 config/core/database/publishers/sources 的重导出，供引用方
+# 以 deps.X 形式访问（如 deps.StyleType、deps.update_news_content、
+# deps.DEFAULT_RSS_FEEDS、deps.PLATFORM_CONFIG）。拆分后 deps 本体不再直接
+# 使用，仅作 re-export，故标注 noqa: F401。
+from config import (  # noqa: F401
     JINA_READER_URL,
     KEYWORDS_FILE,
     KEYWORDS_FILTER_ENABLED,
     NEWSNOW_CRAWL_INTERVAL,
     RSS_CRAWL_INTERVAL,
 )
-from core import NewsInterpreter, StyleType
-from database import (
-    update_news_content,
+from core import NewsInterpreter, StyleType  # noqa: F401
+from database import update_news_content  # noqa: F401
+from publishers import (  # noqa: F401
+    DouyinPublisher,
+    WechatMpPublisher,
+    XiaohongshuPublisher,
 )
-from publishers import DouyinPublisher, WechatMpPublisher, XiaohongshuPublisher
-from sources import (
+from sources import (  # noqa: F401
     DEFAULT_RSS_FEEDS,
     PLATFORM_CONFIG,
     NewsNowBatchCrawler,
     NewsNowCrawler,
     RSSBatchCrawler,
 )
-from sources.filter import KeywordFilter
+from sources.filter import KeywordFilter  # noqa: F401
 
-logger = logging.getLogger(__name__)
+# ── Regular re-exports (stable objects, never reassigned by callers) ──
+# 这些是函数/常量/单例/爬虫/锁；引用方通过 deps.X 访问，故在此重新导入。
+from . import schedule_state as _schedule_state
+from . import stores as _stores
+from .constants import SSE_HEADERS
+from .content import (
+    JS_RENDERED_SOURCES,
+    ensure_content,
+    fetch_article_content,
+    fetch_article_content_via_jina,
+    is_limited_content,
+)
+from .crawlers import (
+    NEWSNOW_CRAWLERS,
+    newsnow_batch,
+    rss_batch,
+)
+from .singletons import (
+    PUBLISHERS,
+    interpreter,
+    kw_filter,
+    resolve_style,
+)
+from .stores import (
+    article_lock,
+    find_article,
+    find_news,
+    find_news_batch,
+    news_lock,
+)
 
-JS_RENDERED_SOURCES = {"toutiao", "cankaoxiaoxi", "weibo", "wallstreetcn-hot", "thepaper"}
-
-# ── In-memory stores ──────────────────────────────────────────────────
-
-news_store: list[dict[str, Any]] = []
-article_store: list[dict[str, Any]] = []
-publish_log: list[dict[str, Any]] = []
-
-# ── Schedule state ────────────────────────────────────────────────────
-
-schedule_running: bool = False
-newsnow_interval: int = NEWSNOW_CRAWL_INTERVAL
-rss_interval: int = RSS_CRAWL_INTERVAL
-last_newsnow_crawl: str | None = None
-last_rss_crawl: str | None = None
-
-# ── Concurrency locks ─────────────────────────────────────────────────
-
-news_lock = asyncio.Lock()
-article_lock = asyncio.Lock()
-
-# ── Crawler registry ─────────────────────────────────────────────────
-
-NEWSNOW_CRAWLERS: dict[str, NewsNowCrawler] = {}
-for platform_id in PLATFORM_CONFIG:
-    try:
-        NEWSNOW_CRAWLERS[platform_id] = NewsNowCrawler(platform_id)
-    except ValueError:
-        pass
-
-newsnow_batch = NewsNowBatchCrawler()
-rss_batch = RSSBatchCrawler(DEFAULT_RSS_FEEDS)
-
-# ── AI interpreter ────────────────────────────────────────────────────
-
-interpreter = NewsInterpreter(mock=False)
-
-# ── Publishers ────────────────────────────────────────────────────────
-
-PUBLISHERS: dict[str, Any] = {
-    "xiaohongshu": XiaohongshuPublisher(),
-    "wechat_mp": WechatMpPublisher(),
-    "douyin": DouyinPublisher(),
+# ── Lazy state delegation ────────────────────────────────────────────
+# 这些名字在运行时会被 app.py lifespan / schedule 路由整体替换或改写，
+# 故不能以 `from .stores import news_store` 的方式冻结绑定，改为在访问时
+# 实时从源模块读取，保证 deps.X 与源模块始终指向同一个对象/值。
+_STATE_DELEGATION = {
+    "news_store": _stores,
+    "article_store": _stores,
+    "publish_log": _stores,
+    "schedule_running": _schedule_state,
+    "newsnow_interval": _schedule_state,
+    "rss_interval": _schedule_state,
+    "last_newsnow_crawl": _schedule_state,
+    "last_rss_crawl": _schedule_state,
 }
 
-# ── Keyword filter ────────────────────────────────────────────────────
 
-kw_filter = KeywordFilter(KEYWORDS_FILE if KEYWORDS_FILTER_ENABLED else None)
+def __getattr__(name: str):
+    """Resolve runtime-reassignable state names from their source modules.
 
-# ── SSE headers ───────────────────────────────────────────────────────
-
-SSE_HEADERS = {
-    "Cache-Control": "no-cache",
-    "Connection": "keep-alive",
-    "X-Accel-Buffering": "no",
-}
-
-# ── Helpers ───────────────────────────────────────────────────────────
-
-
-def find_news(news_id: str) -> dict | None:
-    return next((n for n in news_store if n["news_id"] == news_id), None)
+    PEP 562 module-level ``__getattr__``: invoked only when ``name`` is
+    absent from this module's ``__dict__``, so a rebind like
+    ``deps.schedule_running = True`` shadows the delegation locally and
+    is read back consistently by all ``deps.X`` consumers.
+    """
+    module = _STATE_DELEGATION.get(name)
+    if module is not None:
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def find_news_batch(ids: list[str]) -> list[dict]:
-    return [n for n in news_store if n["news_id"] in ids]
-
-
-def find_article(article_id: str) -> dict | None:
-    return next((a for a in article_store if a.get("article_id") == article_id), None)
-
-
-def resolve_style(style_str: str) -> StyleType:
-    try:
-        return StyleType(style_str)
-    except ValueError:
-        raise HTTPException(
-            400,
-            f"Invalid style: {style_str}. Choose from: {[e.value for e in StyleType]}",
-        )
-
-
-async def fetch_article_content(url: str) -> str:
-    """Fetch and extract main text content from a URL."""
-    if not url:
-        return ""
-    try:
-        from bs4 import BeautifulSoup
-
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            resp = await client.get(
-                url,
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/120.0.0.0 Safari/537.36"
-                    ),
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                },
-            )
-            resp.raise_for_status()
-            resp.encoding = resp.charset_encoding or "utf-8"
-            soup = BeautifulSoup(resp.text, "lxml")
-
-            for tag in soup(["script", "style", "nav", "header", "footer", "aside", "iframe"]):
-                tag.decompose()
-
-            candidates = [
-                soup.find("article"),
-                soup.find(
-                    "div",
-                    class_=lambda c: (
-                        c
-                        and any(k in str(c).lower() for k in ["article", "content", "post", "entry", "detail", "body"])
-                    ),
-                ),
-                soup.find(
-                    "div",
-                    id=lambda i: (
-                        i
-                        and any(k in str(i).lower() for k in ["article", "content", "post", "entry", "detail", "body"])
-                    ),
-                ),
-            ]
-            main = next((c for c in candidates if c), soup.find("body") or soup)
-            paragraphs = main.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "li"])
-            if paragraphs:
-                parts = []
-                for p in paragraphs:
-                    text = p.get_text(strip=True)
-                    if len(text) > 10:
-                        tag = p.name
-                        if tag.startswith("h"):
-                            parts.append(f"{'#' * int(tag[1])} {text}")
-                        elif tag == "blockquote":
-                            parts.append(f"> {text}")
-                        else:
-                            parts.append(text)
-                result = "\n\n".join(parts)[:10000]
-                if len(result) > 100:
-                    return result
-
-            body_text = main.get_text(separator="\n", strip=True)[:5000]
-            if len(body_text) > 200:
-                return body_text
-
-            meta = _extract_meta_description(soup)
-            if meta:
-                return meta
-
-            return body_text
-    except Exception as e:
-        logger.warning("Failed to fetch content from %s: %s", url, e)
-        return ""
-
-
-def _clean_jina_content(text: str) -> str:
-    """Clean noise from Jina Reader output (headers, nav links, broken images, etc.)."""
-    import re
-
-    lines = text.split("\n")
-    cleaned = []
-    skip_patterns = [
-        re.compile(r"^Title:\s*", re.IGNORECASE),
-        re.compile(r"^URL Source:\s*", re.IGNORECASE),
-        re.compile(r"^Markdown Content:\s*", re.IGNORECASE),
-    ]
-    for line in lines:
-        stripped = line.strip()
-        if any(p.match(stripped) for p in skip_patterns):
-            continue
-        if re.match(r"^`https?://\S+`\s*$", stripped):
-            continue
-        if re.match(r"^`https?://\S+`\s*\]\(https?://\S+\)\s*$", stripped):
-            continue
-        if re.match(r"^!\s*`https?://\S+`\s*$", stripped):
-            continue
-        if re.match(r"^!\s*`https?://\S+`\s+\]\(https?://\S+\)\s*$", stripped):
-            continue
-        if re.match(r"^\[`\s*$", stripped):
-            continue
-        cleaned.append(line)
-
-    text = "\n".join(cleaned)
-
-    text = re.sub(r"!\s*`https?://\S+?`(\s*\]\(https?://\S+?\))?", "", text)
-    text = re.sub(r"\[`https?://\S+?`\]\(https?://\S+?\)", "", text)
-    text = re.sub(r"`https?://\S+?`(\s*\]\(https?://\S+?\))?", "", text)
-
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
-
-
-async def fetch_article_content_via_jina(url: str) -> str:
-    """Fetch article content via Jina Reader (handles JS-rendered pages)."""
-    if not url:
-        return ""
-    jina_url = f"{JINA_READER_URL}/{url}"
-    try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            resp = await client.get(
-                jina_url,
-                headers={
-                    "Accept": "text/plain",
-                },
-            )
-            resp.raise_for_status()
-            text = resp.text.strip()
-            if len(text) > 100:
-                text = _clean_jina_content(text)
-                if len(text) > 100:
-                    return text[:10000]
-            return ""
-    except Exception as e:
-        logger.warning("Jina Reader failed for %s: %s", url, e)
-        return ""
-
-
-def _extract_meta_description(soup) -> str:
-    """Extract article description from meta tags as fallback."""
-    parts = []
-
-    og_desc = soup.find("meta", attrs={"property": "og:description"})
-    if og_desc and og_desc.get("content"):
-        text = og_desc["content"].strip()
-        if len(text) > 30:
-            parts.append(text)
-
-    if not parts:
-        meta_desc = soup.find("meta", attrs={"name": "description"})
-        if meta_desc and meta_desc.get("content"):
-            text = meta_desc["content"].strip()
-            if len(text) > 30:
-                parts.append(text)
-
-    for ld in soup.find_all("script", type="application/ld+json"):
-        try:
-            import json
-
-            data = json.loads(ld.string or "")
-            if isinstance(data, dict):
-                for key in ("articleBody", "description", "text"):
-                    val = data.get(key, "")
-                    if val and len(str(val)) > 30:
-                        parts.append(str(val).strip())
-                        break
-                if not parts:
-                    for key in ("articleBody", "description"):
-                        val = data.get("@graph", [{}])[0].get(key, "") if data.get("@graph") else ""
-                        if val and len(str(val)) > 30:
-                            parts.append(str(val).strip())
-                            break
-        except Exception:
-            continue
-
-    return "\n\n".join(parts)[:5000] if parts else ""
-
-
-async def ensure_content(item: dict) -> None:
-    """Ensure a news item has real article content, fetching on-demand if needed."""
-    existing = item.get("content", "")
-    summary = item.get("summary", "")
-    if existing and existing != summary and not existing.startswith(summary[:50]):
-        return
-
-    media_type = (
-        item.get("extra", {}).get("media_type", "article") if isinstance(item.get("extra"), dict) else "article"
-    )
-
-    if media_type == "video":
-        await _ensure_video_content(item)
-        return
-
-    source = item.get("source", "")
-    url = item.get("url", "")
-    if not url:
-        return
-
-    if source in JS_RENDERED_SOURCES:
-        content = await fetch_article_content_via_jina(url)
-        if content:
-            item["content"] = content
-            await update_news_content(item["news_id"], content)
-            return
-        _ensure_limited_content(item)
-        return
-
-    content = await fetch_article_content(url)
-    if content:
-        item["content"] = content
-        await update_news_content(item["news_id"], content)
-    else:
-        content = await fetch_article_content_via_jina(url)
-        if content:
-            item["content"] = content
-            await update_news_content(item["news_id"], content)
-        else:
-            _ensure_limited_content(item)
-
-
-def _ensure_limited_content(item: dict) -> None:
-    """Set limited content for JS-rendered or failed-fetch sources."""
-    summary = item.get("summary", "")
-    title = item.get("title", "")
-    parts = ["[全文需在浏览器中查看]"]
-    if title:
-        parts.append(f"标题：{title}")
-    if summary and summary != title:
-        parts.append(f"摘要：{summary}")
-    item["content"] = "\n".join(parts)
-
-
-def is_limited_content(item: dict) -> bool:
-    """Check if the item has limited content (cannot be processed by AI)."""
-    content = item.get("content", "")
-    return content.startswith("[全文需在浏览器中查看]")
-
-
-async def _ensure_video_content(item: dict) -> None:
-    """Extract metadata from video pages (description, tags, etc.)."""
-    summary = item.get("summary", "")
-    url = item.get("url", "")
-    if not url:
-        return
-
-    metadata = await _extract_video_metadata(url)
-    if metadata:
-        parts = []
-        if metadata.get("description"):
-            parts.append(f"视频简介：{metadata['description']}")
-        if metadata.get("tags"):
-            parts.append(f"标签：{', '.join(metadata['tags'])}")
-        if metadata.get("author"):
-            parts.append(f"作者：{metadata['author']}")
-        if metadata.get("stats"):
-            parts.append(metadata["stats"])
-        if parts:
-            item["content"] = "\n".join(parts)
-            await update_news_content(item["news_id"], item["content"])
-            return
-
-    if summary:
-        item["content"] = f"[视频内容] {summary}"
-
-
-async def _extract_video_metadata(url: str) -> dict | None:
-    """Try to extract metadata from a video page."""
-    try:
-        from bs4 import BeautifulSoup
-
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            resp = await client.get(
-                url,
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/120.0.0.0 Safari/537.36"
-                    ),
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                },
-            )
-            resp.raise_for_status()
-            resp.encoding = resp.charset_encoding or "utf-8"
-            soup = BeautifulSoup(resp.text, "lxml")
-
-            result = {}
-
-            desc_tag = soup.find("meta", attrs={"name": "description"})
-            if desc_tag and desc_tag.get("content"):
-                result["description"] = desc_tag["content"].strip()[:500]
-
-            kw_tag = soup.find("meta", attrs={"name": "keywords"})
-            if kw_tag and kw_tag.get("content"):
-                tags = [t.strip() for t in kw_tag["content"].split(",") if t.strip()]
-                if tags:
-                    result["tags"] = tags[:10]
-
-            og_title = soup.find("meta", attrs={"property": "og:title"})
-            author_tag = soup.find("meta", attrs={"name": "author"})
-            if not author_tag:
-                author_tag = soup.find("meta", attrs={"property": "og:article:author"})
-            if not author_tag and og_title and og_title.get("content"):
-                author_tag = og_title
-            if author_tag and author_tag.get("content"):
-                result["author"] = author_tag["content"].strip()
-
-            stats_parts = []
-            for og_stat in [
-                ("og:video:duration", "时长"),
-                ("og:video:view_count", "播放量"),
-            ]:
-                stat_tag = soup.find("meta", attrs={"property": og_stat[0]})
-                if stat_tag and stat_tag.get("content"):
-                    stats_parts.append(f"{og_stat[1]}: {stat_tag['content']}")
-            if stats_parts:
-                result["stats"] = " | ".join(stats_parts)
-
-            return result if result else None
-    except Exception as e:
-        logger.warning("Failed to extract video metadata from %s: %s", url, e)
-        return None
+# ── __all__ for `from .deps import *` compatibility ──────────────────
+# 枚举全部公共名字，含运行时由 __getattr__ 解析的状态名，使 `import *`
+# 仍能取到这些名字（否则 `import *` 只看 __dict__，会漏掉状态名）。
+__all__ = [
+    # constants
+    "SSE_HEADERS",
+    # stores
+    "news_store",
+    "article_store",
+    "publish_log",
+    "news_lock",
+    "article_lock",
+    "find_news",
+    "find_news_batch",
+    "find_article",
+    # schedule_state
+    "schedule_running",
+    "newsnow_interval",
+    "rss_interval",
+    "last_newsnow_crawl",
+    "last_rss_crawl",
+    # crawlers
+    "NEWSNOW_CRAWLERS",
+    "newsnow_batch",
+    "rss_batch",
+    # singletons
+    "interpreter",
+    "PUBLISHERS",
+    "kw_filter",
+    "resolve_style",
+    # content
+    "JS_RENDERED_SOURCES",
+    "fetch_article_content",
+    "fetch_article_content_via_jina",
+    "ensure_content",
+    "is_limited_content",
+    # re-imports from config/core/database/sources/publishers
+    "httpx",
+    "HTTPException",
+    "JINA_READER_URL",
+    "KEYWORDS_FILE",
+    "KEYWORDS_FILTER_ENABLED",
+    "NEWSNOW_CRAWL_INTERVAL",
+    "RSS_CRAWL_INTERVAL",
+    "NewsInterpreter",
+    "StyleType",
+    "update_news_content",
+    "DouyinPublisher",
+    "WechatMpPublisher",
+    "XiaohongshuPublisher",
+    "DEFAULT_RSS_FEEDS",
+    "PLATFORM_CONFIG",
+    "NewsNowBatchCrawler",
+    "NewsNowCrawler",
+    "RSSBatchCrawler",
+    "KeywordFilter",
+]
