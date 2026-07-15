@@ -2,39 +2,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useKbStore } from './kb'
 
-vi.mock('@/api', () => ({
-  fetchNews: vi.fn(),
-  refreshNews: vi.fn(),
-  refreshNewsSource: vi.fn(),
-  clearNewsContentCache: vi.fn(),
-  generateArticle: vi.fn(),
-  fetchArticles: vi.fn(),
-  publishArticle: vi.fn(),
-  fetchPublishLog: vi.fn(),
-  fetchNewsNowPlatforms: vi.fn(),
-  refreshNewsNow: vi.fn(),
-  fetchRSSFeeds: vi.fn(),
-  refreshRSS: vi.fn(),
-  fetchKBDocuments: vi.fn(),
-  uploadDocuments: vi.fn(),
-  deleteKBDocument: vi.fn(),
-  renameKBDocument: vi.fn(),
-  createKnowledgeBase: vi.fn(),
-  fetchKnowledgeBases: vi.fn(),
-  fetchKnowledgeBase: vi.fn(),
-  deleteKnowledgeBase: vi.fn(),
-  updateKnowledgeBase: vi.fn(),
-  createKBConversation: vi.fn(),
-  fetchKBConversations: vi.fn(),
-  deleteKBConversation: vi.fn(),
-  fetchKBMessages: vi.fn(),
-  saveKBMessage: vi.fn(),
-  fetchKeywordStatus: vi.fn(),
-  updateKeywordGroups: vi.fn(),
-  fetchTasks: vi.fn(),
-  clearDoneTasks: vi.fn(),
-  streamTaskUpdates: vi.fn(),
-}))
+vi.mock('@/api', async () => {
+  const { createApiMock } = await import('./__mocks__/api')
+  return createApiMock()
+})
 
 import {
   fetchKnowledgeBases,
