@@ -17,7 +17,7 @@ from config import LLM_MODEL, NEWS_SOURCES
 from core.interpreter import NewsInterpreter
 from core.langsmith_utils import build_langsmith_config
 from core.style_manager import build_prompt_display_text, prompt_manager
-from database import save_article, upsert_news
+from database import delete_all_news, news_id_exists_batch, save_article, upsert_news
 
 from . import deps
 from .interpret import LIMITED_CONTENT_MSG
@@ -247,7 +247,6 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
     async def refresh_news() -> str:
         """重新爬取所有新闻源，获取最新新闻。当用户要求刷新、更新新闻时调用。"""
         async with deps.news_lock:
-            deps.news_store = []
             all_raw: list = []
             results = {}
             try:
@@ -266,11 +265,15 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
                 results["rss_error"] = str(e)
             filtered = deps.kw_filter.filter_newsitems(all_raw)
             new_items = [item.to_dict() for item in filtered]
-            deps.news_store.extend(new_items)
+            # 语义：refresh_news 是"重新刷新全部"，先清空 DB（事实来源）再 insert
+            # 新的，避免内存清空但 DB 残留导致的不一致。先落库，再失效缓存并回填。
+            await delete_all_news()
             await upsert_news(new_items)
+            deps.invalidate_news()
+            deps.news_store.extend(new_items)
         return json.dumps(
             {
-                "total_news": len(deps.news_store),
+                "total_news": len(new_items),
                 "source_results": results,
             },
             ensure_ascii=False,
@@ -293,16 +296,14 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
             return f"未知的新闻源: {source}。可用源: {', '.join(available)}"
         async with deps.news_lock:
             filtered = deps.kw_filter.filter_newsitems(items)
-            new_count = 0
-            new_items = []
-            for item in filtered:
-                item_dict = item.to_dict()
-                if not any(n["news_id"] == item_dict["news_id"] for n in deps.news_store):
-                    deps.news_store.append(item_dict)
-                    new_items.append(item_dict)
-                    new_count += 1
+            candidates = [item.to_dict() for item in filtered]
+            # DB 查重：拿已存在 news_id 集合，未存在的才新增。先落库再回填缓存。
+            existing = await news_id_exists_batch([d["news_id"] for d in candidates])
+            new_items = [d for d in candidates if d["news_id"] not in existing]
+            new_count = len(new_items)
             if new_items:
                 await upsert_news(new_items)
+                deps.news_store.extend(new_items)
         return json.dumps({"source": source, "total": len(items), "new": new_count}, ensure_ascii=False)
 
     @tool
@@ -395,7 +396,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
 
         results = []
         for nid in ids:
-            item = deps.find_news(nid)
+            item = await deps.find_news(nid)
             if item:
                 await deps.ensure_content(item)
                 title = item.get("title", "")
@@ -458,7 +459,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         if not ids:
             return "当前没有选中或查看的新闻。请告知用户先选择一条新闻。"
 
-        items = deps.find_news_batch(ids)
+        items = await deps.find_news_batch(ids)
         if not items:
             return "未找到对应的新闻内容。"
 
@@ -474,8 +475,9 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         article["article_id"] = f"art_{uuid4().hex[:12]}"
 
         async with deps.article_lock:
-            deps.article_store.append(article)
+            # 先落库（DB 事实来源），再回填缓存（append 即同步缓存）。
             await save_article(article)
+            deps.article_store.append(article)
 
         return json.dumps(
             {
@@ -496,7 +498,7 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         if not ids:
             return "当前没有选中或查看的新闻。请告知用户先选择一条新闻。"
 
-        items = deps.find_news_batch(ids)
+        items = await deps.find_news_batch(ids)
         if not items:
             return "未找到对应的新闻内容。"
 
@@ -768,7 +770,7 @@ async def agent_chat_stream(req: AgentChatRequest):
 
     current_news_text = ""
     if req.current_news_id:
-        current_item = deps.find_news(req.current_news_id)
+        current_item = await deps.find_news(req.current_news_id)
         if current_item:
             await deps.ensure_content(current_item)
             current_news_text = f"\n\n当前用户正在查看的新闻：{current_item.get('title', '')}"
@@ -929,7 +931,6 @@ async def execute_action(req: ExecuteRequest):
 
     if action == "refresh_news":
         async with deps.news_lock:
-            deps.news_store = []
             results = {}
             all_raw: list = []
             try:
@@ -948,9 +949,13 @@ async def execute_action(req: ExecuteRequest):
                 results["rss"] = {"status": "error", "error": str(e)}
             filtered = deps.kw_filter.filter_newsitems(all_raw)
             new_items = [item.to_dict() for item in filtered]
-            deps.news_store.extend(new_items)
+            # 语义：refresh_news 是"重新刷新全部"，先清空 DB（事实来源）再 insert 新的。
+            # 先落库，再失效缓存并回填。
+            await delete_all_news()
             await upsert_news(new_items)
-        return {"success": True, "action": action, "total_news": len(deps.news_store), "results": results}
+            deps.invalidate_news()
+            deps.news_store.extend(new_items)
+        return {"success": True, "action": action, "total_news": len(new_items), "results": results}
 
     elif action == "refresh_source":
         source = req.source
@@ -969,16 +974,14 @@ async def execute_action(req: ExecuteRequest):
             return {"success": False, "action": action, "error": f"Unknown source: {source}"}
         async with deps.news_lock:
             filtered = deps.kw_filter.filter_newsitems(items)
-            new_count = 0
-            new_items = []
-            for item in filtered:
-                item_dict = item.to_dict()
-                if not any(n["news_id"] == item_dict["news_id"] for n in deps.news_store):
-                    deps.news_store.append(item_dict)
-                    new_items.append(item_dict)
-                    new_count += 1
+            candidates = [item.to_dict() for item in filtered]
+            # DB 查重：拿已存在 news_id 集合，未存在的才新增。先落库再回填缓存。
+            existing = await news_id_exists_batch([d["news_id"] for d in candidates])
+            new_items = [d for d in candidates if d["news_id"] not in existing]
+            new_count = len(new_items)
             if new_items:
                 await upsert_news(new_items)
+                deps.news_store.extend(new_items)
         return {"success": True, "action": action, "source": source, "total": len(items), "new": new_count}
 
     else:

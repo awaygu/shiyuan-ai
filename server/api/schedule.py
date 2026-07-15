@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from config import SCHEDULE_ENABLED, SCHEDULE_MIN_INTERVAL
-from database import upsert_news
+from database import news_id_exists_batch, upsert_news
 
 from . import deps
 
@@ -40,14 +40,14 @@ async def _newsnow_crawl_loop():
                 all_items.extend(items)
                 logger.info("  [Schedule] NewsNow-%s: %d items", pid, len(items))
             filtered = deps.kw_filter.filter_newsitems(all_items)
-            new_items: list = []
-            for item in filtered:
-                d = item.to_dict()
-                if not any(n["news_id"] == d["news_id"] for n in deps.news_store):
-                    deps.news_store.append(d)
-                    new_items.append(d)
+            # DB 查重：拿已存在 news_id 集合，未存在的才新增。DB 查询天然原子，
+            # 修复原 schedule 循环无锁 any() 去重的竞态。先落库再回填缓存。
+            candidates = [item.to_dict() for item in filtered]
+            existing = await news_id_exists_batch([d["news_id"] for d in candidates])
+            new_items = [d for d in candidates if d["news_id"] not in existing]
             if new_items:
                 await upsert_news(new_items)
+                deps.news_store.extend(new_items)
                 logger.info("[Schedule] NewsNow: %d new items saved (filtered from %d)", len(new_items), len(all_items))
             deps.last_newsnow_crawl = datetime.now().isoformat()
         except Exception as e:
@@ -67,14 +67,13 @@ async def _rss_crawl_loop():
                 all_items.extend(items)
                 logger.info("  [Schedule] RSS-%s: %d items", feed_id, len(items))
             filtered = deps.kw_filter.filter_newsitems(all_items)
-            new_items: list = []
-            for item in filtered:
-                d = item.to_dict()
-                if not any(n["news_id"] == d["news_id"] for n in deps.news_store):
-                    deps.news_store.append(d)
-                    new_items.append(d)
+            # DB 查重：拿已存在 news_id 集合，未存在的才新增。先落库再回填缓存。
+            candidates = [item.to_dict() for item in filtered]
+            existing = await news_id_exists_batch([d["news_id"] for d in candidates])
+            new_items = [d for d in candidates if d["news_id"] not in existing]
             if new_items:
                 await upsert_news(new_items)
+                deps.news_store.extend(new_items)
                 logger.info("[Schedule] RSS: %d new items saved (filtered from %d)", len(new_items), len(all_items))
             deps.last_rss_crawl = datetime.now().isoformat()
         except Exception as e:

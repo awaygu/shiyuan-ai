@@ -35,10 +35,10 @@ from config import (
 )
 from database import (
     close_db,
+    delete_all_news,
+    get_news_sources,
     init_db,
-    load_articles,
     load_news,
-    load_publish_log,
     upsert_news,
 )
 from sources.newsnow import FALLBACK_API_URL, check_newsnow_health
@@ -69,10 +69,15 @@ async def _wait_for_newsnow():
 
 
 async def lifespan(app: FastAPI):
-    # 直接对源模块（stores / schedule_state）赋值，而不是对 deps 赋值：
-    # deps 已将 news_store/article_store/publish_log/schedule_running 等改为
-    # 通过 __getattr__ 实时转发到源模块，若 `_d.news_store = X` 只会改 deps
-    # 命名空间，不会更新 stores 模块，导致共享状态割裂。
+    # 直接对源模块（schedule_state / stores）赋值，而不是对 deps 赋值：
+    # deps 已将 schedule_running / news_store 等改为通过 __getattr__ 实时转发到
+    # 源模块，若 `_d.schedule_running = X` 只会改 deps 命名空间，不会更新源模块。
+    #
+    # 缓存策略：DB 是唯一事实来源。
+    # - news_store：启动时从 DB 预热（供 trends/search/briefing 等全量扫描端点
+    #   使用，避免重启后返回"无数据"）；运行时写先落库再 invalidate/extend 缓存。
+    # - article_store / publish_log：不预热。列表端点直接读 DB，find_article
+    #   读缓存未命中回源 DB 回填。
     import api.schedule_state as _sch
     import api.stores as _s
 
@@ -86,18 +91,17 @@ async def lifespan(app: FastAPI):
 
     init_memory_db(MEMORY_DB_PATH)
 
-    persisted_news = await load_news()
-    if persisted_news:
-        valid_sources = set(NEWS_SOURCES.keys())
-        stale = any(n.get("source") not in valid_sources for n in persisted_news)
-        if stale:
-            logger.info("Detected stale source format in DB, re-crawling...")
-            persisted_news = None
+    # 过期 source 检测：DB 为事实来源，查 DISTINCT source 判断是否存在失效格式。
+    # 若检测到过期 source，清空 DB 后重新爬取（避免过期记录残留）。
+    valid_sources = set(NEWS_SOURCES.keys())
+    db_sources = await get_news_sources()
+    stale = bool(db_sources) and any(src not in valid_sources for src in db_sources)
 
-    if persisted_news:
-        _s.news_store = persisted_news
-        logger.info("Loaded %d news items from DB", len(_s.news_store))
-    else:
+    if stale:
+        logger.info("Detected stale source format in DB, re-crawling...")
+        await delete_all_news()
+
+    if stale or not db_sources:
         logger.info("Crawling all sources on startup...")
         newsnow_results = await newsnow_batch.crawl_all()
         all_newsnow: list = []
@@ -114,15 +118,18 @@ async def lifespan(app: FastAPI):
         all_raw = all_newsnow + all_rss
         filtered = kw_filter.filter_newsitems(all_raw)
         new_items = [item.to_dict() for item in filtered]
-        # 增量入库：已存在的 news_id 跳过，避免全量 DELETE+INSERT
+        # 增量入库：已存在的 news_id 跳过，避免全量 DELETE+INSERT。
         if new_items:
             await upsert_news(new_items)
-        _s.news_store.extend(new_items)
 
-        logger.info("Total news items: %d (filtered from %d)", len(_s.news_store), len(all_raw))
+        logger.info("Total news items saved: %d (filtered from %d)", len(new_items), len(all_raw))
+    else:
+        logger.info("News already persisted in DB (%d sources), skipping startup crawl", len(db_sources))
 
-    _s.article_store = await load_articles()
-    _s.publish_log = await load_publish_log()
+    # 预热 news_store 缓存：trends/search/briefing 等全量扫描端点直接读缓存，
+    # 不预热会导致重启后返回"无数据"。DB 仍是事实来源，缓存仅作读加速。
+    _s.news_store = await load_news()
+    logger.info("Preloaded news cache: %d items", len(_s.news_store))
 
     _sch.schedule_running = SCHEDULE_ENABLED
     if _sch.schedule_running:

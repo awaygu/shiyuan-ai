@@ -8,7 +8,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from database import save_publish_record
+from database import list_articles, list_publish_log, save_publish_record
 from publishers import BrowserPublisher, DouyinPublisher, WechatMpPublisher, XiaohongshuPublisher
 from publishers.wechat_mp import WECHAT_IP_WHITELIST_ERROR, WechatApiError
 
@@ -69,7 +69,7 @@ async def publish_article(req: PublishRequest):
     content = req.content
 
     if req.article_id and (not title or not content):
-        article = deps.find_article(req.article_id)
+        article = await deps.find_article(req.article_id)
         if not article:
             raise HTTPException(404, f"Article not found: {req.article_id}")
         title = title or article.get("title", "")
@@ -161,9 +161,10 @@ async def _run_publish_task(
         "extra": result.extra,
     }
 
-    async with deps.article_lock:
-        deps.publish_log.append(record)
-        await save_publish_record(record)
+    # publish_log 写走纯 DB：save_publish_record 是单条 INSERT，SQLite WAL 下并发安全，
+    # 不再借用 article_lock。先落库（事实来源），再失效缓存。
+    await save_publish_record(record)
+    deps.invalidate_publish_log()
 
     if result.success:
         await task_manager.update_task(
@@ -253,9 +254,9 @@ async def get_publish_log(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
 ):
-    sorted_log = sorted(deps.publish_log, key=lambda r: r.get("timestamp", ""), reverse=True)
-    total = len(sorted_log)
-    return {"total": total, "offset": offset, "limit": limit, "items": sorted_log[offset : offset + limit]}
+    # DB 为事实来源：列表直接走 DB 分页查询（ORDER BY id DESC）。
+    items, total = await list_publish_log(offset=offset, limit=limit)
+    return {"total": total, "offset": offset, "limit": limit, "items": items}
 
 
 @router.get("/articles")
@@ -263,6 +264,7 @@ async def get_articles(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
 ):
-    sorted_articles = sorted(deps.article_store, key=lambda a: a.get("article_id", ""), reverse=True)
-    total = len(sorted_articles)
-    return {"total": total, "offset": offset, "limit": limit, "items": sorted_articles[offset : offset + limit]}
+    # DB 为事实来源：列表直接走 DB 分页查询（ORDER BY created_at DESC，
+    # 替代原内存版按 article_id 排序，统一为时间倒序）。
+    items, total = await list_articles(offset=offset, limit=limit)
+    return {"total": total, "offset": offset, "limit": limit, "items": items}

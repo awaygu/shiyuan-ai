@@ -53,55 +53,6 @@ async def init_db() -> None:
     logger.info("Database initialized: %s", DB_PATH)
 
 
-async def save_news(items: list[dict[str, Any]]) -> None:
-    db = await get_db()
-    await db.execute("DELETE FROM news")
-    for item in items:
-        extra_json = json.dumps(item.get("extra", {}), ensure_ascii=False)
-        await db.execute(
-            """
-            INSERT OR REPLACE INTO news
-                (news_id, title, summary, content, source, url, published_at, extra)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                item["news_id"],
-                item["title"],
-                item.get("summary", ""),
-                item.get("content", ""),
-                item.get("source", ""),
-                item.get("url", ""),
-                item.get("published_at", ""),
-                extra_json,
-            ),
-        )
-    await db.commit()
-
-
-async def append_news(items: list[dict[str, Any]]) -> None:
-    db = await get_db()
-    for item in items:
-        extra_json = json.dumps(item.get("extra", {}), ensure_ascii=False)
-        await db.execute(
-            """
-            INSERT OR REPLACE INTO news
-                (news_id, title, summary, content, source, url, published_at, extra)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                item["news_id"],
-                item["title"],
-                item.get("summary", ""),
-                item.get("content", ""),
-                item.get("source", ""),
-                item.get("url", ""),
-                item.get("published_at", ""),
-                extra_json,
-            ),
-        )
-    await db.commit()
-
-
 async def upsert_news(items: list[dict[str, Any]]) -> int:
     """增量入库：已存在的 news_id 跳过（INSERT OR IGNORE），返回实际新增条数。
 
@@ -175,6 +126,96 @@ async def load_news() -> list[dict[str, Any]]:
     return result
 
 
+def _row_to_news(row: aiosqlite.Row) -> dict[str, Any]:
+    """将 news 表的行反序列化为 dict（extra JSON 解码）。"""
+    return {
+        "news_id": row["news_id"],
+        "title": row["title"],
+        "summary": row["summary"],
+        "content": row["content"],
+        "source": row["source"],
+        "url": row["url"],
+        "published_at": row["published_at"],
+        "extra": json.loads(row["extra"]) if row["extra"] else {},
+    }
+
+
+async def get_news(news_id: str) -> dict[str, Any] | None:
+    """按 news_id 单条查询，未找到返回 None。extra 自动反序列化。"""
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM news WHERE news_id = ?", (news_id,))
+    row = await cursor.fetchone()
+    if not row:
+        return None
+    return _row_to_news(row)
+
+
+async def get_news_batch(news_ids: list[str]) -> list[dict[str, Any]]:
+    """批量按 news_id 查询，返回 DB 中存在的全部条目（顺序按 published_at DESC）。"""
+    if not news_ids:
+        return []
+    db = await get_db()
+    placeholders = ",".join("?" for _ in news_ids)
+    cursor = await db.execute(
+        f"SELECT * FROM news WHERE news_id IN ({placeholders}) ORDER BY published_at DESC",
+        news_ids,
+    )
+    rows = await cursor.fetchall()
+    return [_row_to_news(row) for row in rows]
+
+
+async def list_news(
+    source: str | None = None, offset: int = 0, limit: int = 20
+) -> tuple[list[dict[str, Any]], int]:
+    """分页列表 + total。source 为 None 查全部；ORDER BY published_at DESC。"""
+    db = await get_db()
+    if source is not None:
+        cursor = await db.execute("SELECT COUNT(*) AS c FROM news WHERE source = ?", (source,))
+        total = (await cursor.fetchone())["c"]
+        cursor = await db.execute(
+            "SELECT * FROM news WHERE source = ? ORDER BY published_at DESC LIMIT ? OFFSET ?",
+            (source, limit, offset),
+        )
+    else:
+        cursor = await db.execute("SELECT COUNT(*) AS c FROM news")
+        total = (await cursor.fetchone())["c"]
+        cursor = await db.execute(
+            "SELECT * FROM news ORDER BY published_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+    rows = await cursor.fetchall()
+    return [_row_to_news(row) for row in rows], total
+
+
+async def news_id_exists_batch(news_ids: list[str]) -> set[str]:
+    """返回 news_ids 中已存在于 DB 的子集（去重判断用，比逐条 any() 快）。"""
+    if not news_ids:
+        return set()
+    db = await get_db()
+    placeholders = ",".join("?" for _ in news_ids)
+    cursor = await db.execute(
+        f"SELECT news_id FROM news WHERE news_id IN ({placeholders})",
+        news_ids,
+    )
+    rows = await cursor.fetchall()
+    return {row["news_id"] for row in rows}
+
+
+async def delete_all_news() -> None:
+    """清空 news 表。用于 refresh_news 的"重新刷新全部"语义。"""
+    db = await get_db()
+    await db.execute("DELETE FROM news")
+    await db.commit()
+
+
+async def get_news_sources() -> list[str]:
+    """返回 news 表中出现过的不重复 source 列表（用于启动时检测过期 source 格式）。"""
+    db = await get_db()
+    cursor = await db.execute("SELECT DISTINCT source FROM news")
+    rows = await cursor.fetchall()
+    return [row["source"] for row in rows if row["source"] is not None]
+
+
 async def save_article(article: dict[str, Any]) -> None:
     db = await get_db()
     news_ids_json = json.dumps(article.get("news_ids", []), ensure_ascii=False)
@@ -200,16 +241,42 @@ async def load_articles() -> list[dict[str, Any]]:
     rows = await cursor.fetchall()
     result = []
     for row in rows:
-        result.append(
-            {
-                "article_id": row["article_id"],
-                "title": row["title"],
-                "content": row["content"],
-                "style": row["style"],
-                "news_ids": json.loads(row["news_ids"]) if row["news_ids"] else [],
-            }
-        )
+        result.append(_row_to_article(row))
     return result
+
+
+def _row_to_article(row: aiosqlite.Row) -> dict[str, Any]:
+    """将 articles 表的行反序列化为 dict（news_ids JSON 解码）。"""
+    return {
+        "article_id": row["article_id"],
+        "title": row["title"],
+        "content": row["content"],
+        "style": row["style"],
+        "news_ids": json.loads(row["news_ids"]) if row["news_ids"] else [],
+    }
+
+
+async def get_article(article_id: str) -> dict[str, Any] | None:
+    """按 article_id 单条查询，未找到返回 None。"""
+    db = await get_db()
+    cursor = await db.execute("SELECT * FROM articles WHERE article_id = ?", (article_id,))
+    row = await cursor.fetchone()
+    if not row:
+        return None
+    return _row_to_article(row)
+
+
+async def list_articles(offset: int = 0, limit: int = 20) -> tuple[list[dict[str, Any]], int]:
+    """分页列表 + total，ORDER BY created_at DESC。"""
+    db = await get_db()
+    cursor = await db.execute("SELECT COUNT(*) AS c FROM articles")
+    total = (await cursor.fetchone())["c"]
+    cursor = await db.execute(
+        "SELECT * FROM articles ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    )
+    rows = await cursor.fetchall()
+    return [_row_to_article(row) for row in rows], total
 
 
 async def save_publish_record(record: dict[str, Any]) -> None:
@@ -236,19 +303,32 @@ async def load_publish_log() -> list[dict[str, Any]]:
     db = await get_db()
     cursor = await db.execute("SELECT * FROM publish_log ORDER BY id DESC")
     rows = await cursor.fetchall()
-    result = []
-    for row in rows:
-        result.append(
-            {
-                "article_id": row["article_id"],
-                "platform": row["platform"],
-                "success": bool(row["success"]),
-                "url": row["url"],
-                "timestamp": row["timestamp"],
-                "extra": json.loads(row["extra"]) if row["extra"] else {},
-            }
-        )
-    return result
+    return [_row_to_publish_log(row) for row in rows]
+
+
+def _row_to_publish_log(row: aiosqlite.Row) -> dict[str, Any]:
+    """将 publish_log 表的行反序列化为 dict（success 转 bool，extra JSON 解码）。"""
+    return {
+        "article_id": row["article_id"],
+        "platform": row["platform"],
+        "success": bool(row["success"]),
+        "url": row["url"],
+        "timestamp": row["timestamp"],
+        "extra": json.loads(row["extra"]) if row["extra"] else {},
+    }
+
+
+async def list_publish_log(offset: int = 0, limit: int = 20) -> tuple[list[dict[str, Any]], int]:
+    """分页列表 + total，ORDER BY id DESC（最新优先）。"""
+    db = await get_db()
+    cursor = await db.execute("SELECT COUNT(*) AS c FROM publish_log")
+    total = (await cursor.fetchone())["c"]
+    cursor = await db.execute(
+        "SELECT * FROM publish_log ORDER BY id DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    )
+    rows = await cursor.fetchall()
+    return [_row_to_publish_log(row) for row in rows], total
 
 
 # ── Knowledge Base ─────────────────────────────────────────────

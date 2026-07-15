@@ -8,7 +8,12 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 
 from config import NEWS_SOURCES
-from database import clear_news_content_by_source, upsert_news
+from database import (
+    clear_news_content_by_source,
+    list_news,
+    news_id_exists_batch,
+    upsert_news,
+)
 
 from . import deps
 
@@ -27,24 +32,22 @@ async def _bg_crawl_and_save(source: str, crawler) -> None:
         return
     async with deps.news_lock:
         filtered = deps.kw_filter.filter_newsitems(items)
-        new_count = 0
-        new_items = []
-        for item in filtered:
-            item_dict = item.to_dict()
-            existing = any(n["news_id"] == item_dict["news_id"] for n in deps.news_store)
-            if not existing:
-                deps.news_store.append(item_dict)
-                new_items.append(item_dict)
-                new_count += 1
+        candidates = [item.to_dict() for item in filtered]
+        # DB 查重：拿已存在 news_id 集合，未存在的才新增（DB 查询天然原子，
+        # 避免内存 any() 在并发刷新下漏判）。
+        existing = await news_id_exists_batch([d["news_id"] for d in candidates])
+        new_items = [d for d in candidates if d["news_id"] not in existing]
+        # 先落库（事实来源），再回填缓存。
         if new_items:
             await upsert_news(new_items)
+            deps.news_store.extend(new_items)
+        new_count = len(new_items)
     logger.info("[refresh] %s done: %d total, %d new", source, len(items), new_count)
 
 
 @router.post("/news/refresh")
 async def refresh_news():
     async with deps.news_lock:
-        existing_ids = {n["news_id"] for n in deps.news_store}
         results = {}
         all_raw: list = []
 
@@ -69,19 +72,18 @@ async def refresh_news():
             logger.warning("  ✗ RSS: %s", e)
 
         filtered = deps.kw_filter.filter_newsitems(all_raw)
-        new_count = 0
-        new_items = []
-        for item in filtered:
-            d = item.to_dict()
-            if d["news_id"] not in existing_ids:
-                deps.news_store.append(d)
-                existing_ids.add(d["news_id"])
-                new_items.append(d)
-                new_count += 1
-
+        candidates = [item.to_dict() for item in filtered]
+        # DB 查重：拿已存在 news_id 集合，未存在的才新增。
+        existing = await news_id_exists_batch([d["news_id"] for d in candidates])
+        new_items = [d for d in candidates if d["news_id"] not in existing]
+        # 先落库（事实来源），再回填缓存。
         if new_items:
             await upsert_news(new_items)
-    return {"total": len(deps.news_store), "new": new_count, "total_raw": len(all_raw), "results": results}
+            deps.news_store.extend(new_items)
+
+    # total 走 DB 计数，与 /api/news 列表端点口径一致（DB 为事实来源）。
+    _, total = await list_news(source=None, offset=0, limit=1)
+    return {"total": total, "new": len(new_items), "total_raw": len(all_raw), "results": results}
 
 
 @router.get("/news")
@@ -90,16 +92,14 @@ async def get_news(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
 ):
-    pool = [n for n in deps.news_store if n["source"] == source] if source else list(deps.news_store)
-    pool.sort(key=lambda n: n.get("published_at", ""), reverse=True)
-    total = len(pool)
-    items = pool[offset : offset + limit]
+    # DB 为事实来源：列表直接走 DB 分页查询（缓存不再作为列表来源）。
+    items, total = await list_news(source=source, offset=offset, limit=limit)
     return {"total": total, "offset": offset, "limit": limit, "items": items}
 
 
 @router.get("/news/{news_id}/content")
 async def get_news_content(news_id: str):
-    item = deps.find_news(news_id)
+    item = await deps.find_news(news_id)
     if not item:
         raise HTTPException(404, f"News not found: {news_id}")
 
@@ -117,13 +117,14 @@ async def get_news_content(news_id: str):
     if source in deps.JS_RENDERED_SOURCES:
         content = await deps.fetch_article_content_via_jina(url)
         if content:
-            item["content"] = content
+            # 先落库（DB 事实来源），再原地更新缓存条目（item 是缓存里的共享对象）。
             await deps.update_news_content(news_id, content)
+            item["content"] = content
             return {"news_id": news_id, "content": content, "cached": False, "source": "jina"}
         content = await deps.fetch_article_content(url)
         if content:
-            item["content"] = content
             await deps.update_news_content(news_id, content)
+            item["content"] = content
             return {"news_id": news_id, "content": content, "cached": False, "source": "original"}
         return {"news_id": news_id, "content": summary, "cached": False, "source": "summary_only"}
 
@@ -133,8 +134,8 @@ async def get_news_content(news_id: str):
     if not content:
         return {"news_id": news_id, "content": summary, "cached": False, "source": "summary_only"}
 
-    item["content"] = content
     await deps.update_news_content(news_id, content)
+    item["content"] = content
     return {"news_id": news_id, "content": content, "cached": False, "source": "original"}
 
 
@@ -158,11 +159,10 @@ async def refresh_news_source(source: str):
 async def clear_news_content_cache(source: str):
     if source not in NEWS_SOURCES:
         raise HTTPException(400, f"Unknown source: {source}")
+    # 先落库（DB 事实来源），再失效缓存中该 source 的条目（下次读取回源 DB 回填）。
     count = await clear_news_content_by_source(source)
-    async with deps.news_lock:
-        for item in deps.news_store:
-            if item.get("source") == source:
-                item["content"] = ""
+    deps.invalidate_news(source=source)
+    return {"source": source, "cleared": count}
     return {"source": source, "cleared": count}
 
 
@@ -189,16 +189,13 @@ async def refresh_newsnow():
             logger.info("  ✓ %s: %d items", alias, len(items))
 
         filtered = deps.kw_filter.filter_newsitems(all_raw)
-        new_items = []
-        for item in filtered:
-            item_dict = item.to_dict()
-            existing = any(n["news_id"] == item_dict["news_id"] for n in deps.news_store)
-            if not existing:
-                deps.news_store.append(item_dict)
-                new_items.append(item_dict)
-
+        candidates = [item.to_dict() for item in filtered]
+        # DB 查重：拿已存在 news_id 集合，未存在的才新增。先落库再回填缓存。
+        existing = await news_id_exists_batch([d["news_id"] for d in candidates])
+        new_items = [d for d in candidates if d["news_id"] not in existing]
         if new_items:
             await upsert_news(new_items)
+            deps.news_store.extend(new_items)
 
     return {
         "total_new": len(new_items),
@@ -241,16 +238,13 @@ async def refresh_rss():
             logger.info("  ✓ RSS %s: %d items", feed_id, len(items))
 
         filtered = deps.kw_filter.filter_newsitems(all_raw)
-        new_items = []
-        for item in filtered:
-            item_dict = item.to_dict()
-            existing = any(n["news_id"] == item_dict["news_id"] for n in deps.news_store)
-            if not existing:
-                deps.news_store.append(item_dict)
-                new_items.append(item_dict)
-
+        candidates = [item.to_dict() for item in filtered]
+        # DB 查重：拿已存在 news_id 集合，未存在的才新增。先落库再回填缓存。
+        existing = await news_id_exists_batch([d["news_id"] for d in candidates])
+        new_items = [d for d in candidates if d["news_id"] not in existing]
         if new_items:
             await upsert_news(new_items)
+            deps.news_store.extend(new_items)
 
     return {
         "total_new": len(new_items),

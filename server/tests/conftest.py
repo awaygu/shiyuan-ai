@@ -54,6 +54,10 @@ async def client(monkeypatch, tmp_path) -> TestClient:
     """Yield a TestClient with mocked external dependencies.
 
     Each test gets its own isolated SQLite database under ``tmp_path``.
+    In-memory caches (news_store / article_store / publish_log) are cleared
+    before and after each test, and any stale ``deps`` shadow attributes left
+    by other tests' ``monkeypatch.setattr(deps, "news_store", ...)`` are removed
+    so ``deps`` re-delegates to ``stores`` cleanly.
     """
     # Use a fresh database file for each test.
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "news_ai.db")
@@ -67,7 +71,27 @@ async def client(monkeypatch, tmp_path) -> TestClient:
     monkeypatch.setattr(crawlers.newsnow_batch, "crawl_all", _empty_dict)
     monkeypatch.setattr(crawlers.rss_batch, "crawl_all", _empty_dict)
 
+    # Clear in-memory caches + drop stale deps shadows so every client test
+    # starts from a clean slate (cross-test cache pollution otherwise leaks
+    # via the process-wide stores lists).
+    from api import deps as _deps
+    from api import stores as _stores
+
+    for _name in ("news_store", "article_store", "publish_log"):
+        if _name in _deps.__dict__:
+            del _deps.__dict__[_name]
+    _stores.news_store.clear()
+    _stores.article_store.clear()
+    _stores.publish_log.clear()
+
     with TestClient(app_module.app) as test_client:
         yield test_client
 
     await db.close_db()
+    # Tear down: clear caches + remove shadows again.
+    for _name in ("news_store", "article_store", "publish_log"):
+        if _name in _deps.__dict__:
+            del _deps.__dict__[_name]
+    _stores.news_store.clear()
+    _stores.article_store.clear()
+    _stores.publish_log.clear()

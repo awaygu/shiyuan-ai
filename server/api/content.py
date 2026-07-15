@@ -228,21 +228,22 @@ async def ensure_content(item: dict) -> None:
     if source in JS_RENDERED_SOURCES:
         content = await fetch_article_content_via_jina(url)
         if content:
-            item["content"] = content
+            # 先落库（DB 事实来源），再原地更新缓存条目（item 是 find_news 返回的共享对象）。
             await update_news_content(item["news_id"], content)
+            item["content"] = content
             return
         _ensure_limited_content(item)
         return
 
     content = await fetch_article_content(url)
     if content:
-        item["content"] = content
         await update_news_content(item["news_id"], content)
+        item["content"] = content
     else:
         content = await fetch_article_content_via_jina(url)
         if content:
-            item["content"] = content
             await update_news_content(item["news_id"], content)
+            item["content"] = content
         else:
             _ensure_limited_content(item)
 
@@ -284,8 +285,10 @@ async def _ensure_video_content(item: dict) -> None:
         if metadata.get("stats"):
             parts.append(metadata["stats"])
         if parts:
-            item["content"] = "\n".join(parts)
-            await update_news_content(item["news_id"], item["content"])
+            content = "\n".join(parts)
+            # 先落库（DB 事实来源），再原地更新缓存条目。
+            await update_news_content(item["news_id"], content)
+            item["content"] = content
             return
 
     if summary:

@@ -96,6 +96,9 @@ from .stores import (
     find_article,
     find_news,
     find_news_batch,
+    invalidate_articles,
+    invalidate_news,
+    invalidate_publish_log,
     news_lock,
 )
 
@@ -144,6 +147,9 @@ __all__ = [
     "find_news",
     "find_news_batch",
     "find_article",
+    "invalidate_news",
+    "invalidate_articles",
+    "invalidate_publish_log",
     # schedule_state
     "schedule_running",
     "newsnow_interval",
