@@ -3,7 +3,12 @@
 
 import shutil
 import sqlite3
+import sys
 from pathlib import Path
+
+# 从 server/ 根读取 DB_PATH，避免硬编码路径，不依赖 cwd
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from database import DB_PATH  # noqa: E402
 
 base_dir = Path("uploads")
 
@@ -22,7 +27,7 @@ if archive_dir.exists():
             print(f"  deleted archive: {f}")
 
 # 3. 清空数据库 KB 相关表
-conn = sqlite3.connect("news_ai.db")
+conn = sqlite3.connect(str(DB_PATH))
 c = conn.cursor()
 for table in ["kb_chunks", "kb_documents", "knowledge_bases", "kb_conversations", "kb_messages"]:
     try:

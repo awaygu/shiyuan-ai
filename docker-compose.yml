@@ -15,6 +15,7 @@ services:
       - COOKIES_DIR=/app/data/cookies
       - MEMORY_DB_PATH=/app/data/agent_memory.db
       - KB_RAG_MEMORY_DB_PATH=/app/data/rag_memory.db
+      - NEWS_AI_DB_PATH=/app/data/news_ai.db
       # 容器内无显示器，发布/登录恒以 headless 运行；覆盖 .env 的本地开发设置
       - PUBLISH_HEADLESS=true
     volumes:

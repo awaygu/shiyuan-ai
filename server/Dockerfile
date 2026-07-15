@@ -9,10 +9,6 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 COPY . .
 
-# 数据持久化：主数据库符号链接到 /app/data 目录，便于挂载卷统一持久化
-RUN mkdir -p /app/data \
-    && ln -sf /app/data/news_ai.db /app/news_ai.db
-
 EXPOSE 8000
 
 CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "asyncio"]

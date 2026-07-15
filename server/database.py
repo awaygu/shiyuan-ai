@@ -34,7 +34,7 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(os.getenv("NEWS_AI_DB_PATH", str(Path(__file__).parent / "news_ai.db")))
+DB_PATH = Path(os.getenv("NEWS_AI_DB_PATH", str(Path(__file__).parent / "data" / "news_ai.db")))
 
 # 写连接（单连接，迁移与所有写函数共用）
 _db: aiosqlite.Connection | None = None
