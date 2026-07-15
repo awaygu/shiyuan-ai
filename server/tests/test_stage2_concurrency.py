@@ -21,7 +21,6 @@ import database as db
 from api import deps
 from api.tasks import TaskManager
 
-
 # ── 1. schedule_running 跨路径一致性（shadow bug 回归） ──────────
 
 
@@ -108,8 +107,6 @@ async def test_toggle_disable_writes_source_module_false(monkeypatch):
 
     monkeypatch.setattr(schedule_mod, "_newsnow_crawl_loop", _blocking_loop)
     monkeypatch.setattr(schedule_mod, "_rss_crawl_loop", _blocking_loop)
-
-    from api.tasks import task_manager
 
     # 先启用
     await schedule_mod.toggle_schedule(schedule_mod.ToggleScheduleRequest(enabled=True))

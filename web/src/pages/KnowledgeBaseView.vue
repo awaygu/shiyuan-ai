@@ -43,7 +43,11 @@
         </template>
       </div>
       <div class="header-right">
-        <el-badge :value="taskStore.runningTaskCount" :hidden="taskStore.runningTaskCount === 0" :max="9">
+        <el-badge
+          :value="taskStore.runningTaskCount"
+          :hidden="taskStore.runningTaskCount === 0"
+          :max="9"
+        >
           <el-button text class="task-btn" @click="taskStore.toggleTaskPanel">
             <el-icon><List /></el-icon> 任务
           </el-button>
@@ -129,7 +133,11 @@
       </div>
 
       <transition name="slide">
-        <div v-if="taskStore.showTaskPanel" class="kb-task-panel" :style="{ width: taskWidth + 'px' }">
+        <div
+          v-if="taskStore.showTaskPanel"
+          class="kb-task-panel"
+          :style="{ width: taskWidth + 'px' }"
+        >
           <TaskPanel @close="taskStore.showTaskPanel = false" />
         </div>
       </transition>
