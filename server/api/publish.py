@@ -13,6 +13,7 @@ from publishers import BrowserPublisher, DouyinPublisher, WechatMpPublisher, Xia
 from publishers.wechat_mp import WECHAT_IP_WHITELIST_ERROR, WechatApiError
 
 from . import deps
+from .errors import bad_request, not_found, unknown_platform
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,20 @@ def _get_lock(platform: str) -> asyncio.Lock:
     if platform not in _publish_locks:
         _publish_locks[platform] = asyncio.Lock()
     return _publish_locks[platform]
+
+
+def _already_running(platform: str) -> HTTPException:
+    """构造 429 并发冲突异常（带 Retry-After 提示客户端稍后重试）。
+
+    errors.py 没有提供 429 helper（发布并发守卫是 publish 路由特有语义），
+    故在本地构造 HTTPException；统一信封由 app.py 注册的全局
+    exception_handler 自动加 code/type，headers 也一并透传。
+    """
+    return HTTPException(
+        status_code=429,
+        detail=f"A task is already running for {platform}",
+        headers={"Retry-After": "5"},
+    )
 
 
 def _init_publishers():
@@ -59,10 +74,7 @@ async def publish_article(req: PublishRequest):
 
     publisher = deps.PUBLISHERS.get(req.platform)
     if not publisher:
-        raise HTTPException(
-            400,
-            f"Unknown platform: {req.platform}. Available: {list(deps.PUBLISHERS.keys())}",
-        )
+        raise unknown_platform(req.platform, available=list(deps.PUBLISHERS.keys()))
 
     title = req.title
     content = req.content
@@ -70,12 +82,12 @@ async def publish_article(req: PublishRequest):
     if req.article_id and (not title or not content):
         article = await deps.find_article(req.article_id)
         if not article:
-            raise HTTPException(404, f"Article not found: {req.article_id}")
+            raise not_found(f"Article not found: {req.article_id}")
         title = title or article.get("title", "")
         content = content or article.get("content", "")
 
     if not title or not content:
-        raise HTTPException(400, "title and content are required (either directly or via article_id)")
+        raise bad_request("title and content are required (either directly or via article_id)")
 
     clean_title = title[:40] if title else "文章"
     task = await task_manager.create_task("publish", req.platform, clean_title)
@@ -190,11 +202,13 @@ async def _run_publish_task(
 async def login_platform(platform: str):
     publisher = deps.PUBLISHERS.get(platform)
     if not publisher:
-        raise HTTPException(400, f"Unknown platform: {platform}")
+        raise unknown_platform(platform, available=list(deps.PUBLISHERS.keys()))
 
     lock = _get_lock(platform)
+    # 单 asyncio 事件循环下，locked() 检查与下方 `async with lock` 之间无 await，
+    # 不构成 TOCTOU；此快速检查仅用于乐观早退返回 429，真正互斥仍由 `async with lock` 保证。
     if lock.locked():
-        raise HTTPException(429, f"A task is already running for {platform}")
+        raise _already_running(platform)
 
     error_message = ""
     login_exc = None
@@ -226,7 +240,7 @@ async def login_platform(platform: str):
 async def login_status(platform: str):
     publisher = deps.PUBLISHERS.get(platform)
     if not publisher:
-        raise HTTPException(400, f"Unknown platform: {platform}")
+        raise unknown_platform(platform, available=list(deps.PUBLISHERS.keys()))
 
     error_message = ""
     status_exc = None

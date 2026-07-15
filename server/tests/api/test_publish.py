@@ -224,3 +224,139 @@ async def test_publish_log_orders_desc_by_id(client: TestClient):
     data = resp.json()
     assert data["items"][0]["article_id"] == "art_2"
     assert data["items"][-1]["article_id"] == "art_0"
+
+
+# ── 阶段3任务12：统一错误信封 + 429 守卫 + _safe_run 异常吞并 ──────────────
+#
+# 验证 publish 路由的错误返回对齐到 errors.py 统一信封
+# （{"detail", "code", "type"}），429 并发守卫信封化，以及
+# _safe_run_publish_task 吞掉初始化异常并标记 task failed。
+
+
+def _assert_error_envelope(body, *, code, type_="http_error"):
+    """断言返回体为统一错误信封三字段结构（复用 test_errors.py 的断言风格）。"""
+    assert "detail" in body
+    assert body["code"] == code
+    assert body["type"] == type_
+
+
+def test_publish_unknown_platform_envelope_lists_available(client: TestClient, monkeypatch):
+    """未知平台 400 返回统一信封，detail 含可用平台列表（透传 available=...）。"""
+    _patch_publishers(monkeypatch)
+    resp = client.post("/api/publish", json={"platform": "nope", "title": "t", "content": "c"})
+    assert resp.status_code == 400
+    body = resp.json()
+    _assert_error_envelope(body, code=400)
+    # unknown_platform(available=...) 透传可用平台列表到 detail
+    assert "Unknown platform: nope" in body["detail"]
+    assert "xiaohongshu" in body["detail"]
+    assert "wechat_mp" in body["detail"]
+
+
+def test_login_unknown_platform_envelope(client: TestClient, monkeypatch):
+    """登录端未知平台 400 统一信封。"""
+    _patch_publishers(monkeypatch)
+    resp = client.post("/api/publish/nope/login")
+    assert resp.status_code == 400
+    _assert_error_envelope(resp.json(), code=400)
+
+
+def test_status_unknown_platform_envelope(client: TestClient, monkeypatch):
+    """状态端未知平台 400 统一信封。"""
+    _patch_publishers(monkeypatch)
+    resp = client.get("/api/publish/nope/status")
+    assert resp.status_code == 400
+    _assert_error_envelope(resp.json(), code=400)
+
+
+def test_publish_article_not_found_envelope(client: TestClient, monkeypatch):
+    """article_id 不存在 → 404 统一信封，detail 含 article_id。"""
+    _patch_publishers(monkeypatch)
+    resp = client.post("/api/publish", json={"platform": "xiaohongshu", "article_id": "nope"})
+    assert resp.status_code == 404
+    body = resp.json()
+    _assert_error_envelope(body, code=404)
+    assert "Article not found: nope" in body["detail"]
+
+
+def test_publish_missing_title_and_content_envelope(client: TestClient, monkeypatch):
+    """缺 title/content → 400 统一信封（补强原 status_code 断言）。"""
+    _patch_publishers(monkeypatch)
+    resp = client.post("/api/publish", json={"platform": "xiaohongshu"})
+    assert resp.status_code == 400
+    body = resp.json()
+    _assert_error_envelope(body, code=400)
+    assert "title and content are required" in body["detail"]
+
+
+async def test_login_429_when_lock_held(client: TestClient, monkeypatch):
+    """lock 已被占用时登录 → 429 统一信封 + Retry-After header。
+
+    占住模块级 _publish_locks[xiaohongshu]，发请求应乐观早退返回 429；
+    全局 exception_handler 自动加 code/type，headers 透传 Retry-After。
+    """
+    import api.publish as publish_mod
+
+    _patch_publishers(monkeypatch)
+    lock = publish_mod._get_lock("xiaohongshu")
+    # 占住 lock（模拟另一任务正在执行登录），用 try/finally 确保释放
+    await lock.acquire()
+    try:
+        resp = client.post("/api/publish/xiaohongshu/login")
+        assert resp.status_code == 429
+        body = resp.json()
+        _assert_error_envelope(body, code=429)
+        assert "xiaohongshu" in body["detail"]
+        # Retry-After header 透传（健壮性提升，提示客户端稍后重试）
+        assert resp.headers.get("Retry-After") == "5"
+    finally:
+        lock.release()
+
+
+async def test_safe_run_publish_task_swallows_init_exception_and_marks_failed(monkeypatch):
+    """_safe_run_publish_task 吞掉 _run_publish_task 抛出的初始化异常并标记 task failed。
+
+    直接单测 _safe_run_publish_task：mock _run_publish_task 抛 RuntimeError("boom")，
+    验证它捕获异常并调 task_manager.update_task(status="failed", error="boom")，
+    而非让异常向上传播（否则 create_task 会静默吞）。
+    """
+    import api.publish as publish_mod
+    from api.tasks import AsyncTask, TaskManager
+
+    # 用一个独立 TaskManager 实例避免污染单例 tasks 字典
+    mgr = TaskManager()
+    mgr.tasks.clear()
+    mgr._subscribers.clear()
+    task = AsyncTask(task_id="tboom", task_type="publish", platform="xiaohongshu", title="t")
+    mgr.tasks[task.task_id] = task
+
+    # mock task_manager 单例的 update_task 到本实例（_safe_run_publish_task 内部
+    # `from .tasks import task_manager` 拿到的是单例，故 patch 单例方法）。
+    from api.tasks import task_manager as singleton_mgr
+
+    captured: list = []
+
+    async def _fake_update(task_id, status=None, progress=None, result=None, error=None, need_login=None):
+        captured.append((task_id, status, progress, error))
+        # 同步到独立实例以便断言
+        if task_id in mgr.tasks and status is not None:
+            mgr.tasks[task_id].status = status
+        if task_id in mgr.tasks and error is not None:
+            mgr.tasks[task_id].error = error
+
+    monkeypatch.setattr(singleton_mgr, "update_task", _fake_update)
+
+    # mock _run_publish_task 抛异常（模拟初始化阶段失败，如 update_task("running") 抛错）
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(publish_mod, "_run_publish_task", _boom)
+
+    # _safe_run_publish_task 应吞掉异常，不应抛出
+    await publish_mod._safe_run_publish_task(task=task, publisher=None, title="t", content="c")
+
+    # 验证 update_task 被以 failed + "boom" 调用
+    assert any(c[0] == "tboom" and c[1] == "failed" and "boom" in (c[3] or "") for c in captured)
+    assert mgr.tasks["tboom"].status == "failed"
+    assert "boom" in (mgr.tasks["tboom"].error or "")
+
