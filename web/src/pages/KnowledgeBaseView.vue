@@ -43,8 +43,8 @@
         </template>
       </div>
       <div class="header-right">
-        <el-badge :value="store.runningTaskCount" :hidden="store.runningTaskCount === 0" :max="9">
-          <el-button text class="task-btn" @click="store.toggleTaskPanel">
+        <el-badge :value="taskStore.runningTaskCount" :hidden="taskStore.runningTaskCount === 0" :max="9">
+          <el-button text class="task-btn" @click="taskStore.toggleTaskPanel">
             <el-icon><List /></el-icon> 任务
           </el-button>
         </el-badge>
@@ -129,8 +129,8 @@
       </div>
 
       <transition name="slide">
-        <div v-if="store.showTaskPanel" class="kb-task-panel" :style="{ width: taskWidth + 'px' }">
-          <TaskPanel @close="store.showTaskPanel = false" />
+        <div v-if="taskStore.showTaskPanel" class="kb-task-panel" :style="{ width: taskWidth + 'px' }">
+          <TaskPanel @close="taskStore.showTaskPanel = false" />
         </div>
       </transition>
     </div>
@@ -144,14 +144,15 @@ import KBChatPanel from '@/components/KBChatPanel.vue'
 import KBGeneratePanel from '@/components/KBGeneratePanel.vue'
 import KBActionPanel from '@/components/KBActionPanel.vue'
 import TaskPanel from '@/components/TaskPanel.vue'
-import { useNewsStore } from '@/stores'
+import { useKbStore, useTaskStore } from '@/stores'
 import type { StyleType } from '@/types'
 import { getKbIcon } from '@/types'
 import { ElMessage, ElInput } from 'element-plus'
 import { Edit } from '@element-plus/icons-vue'
 
 const props = defineProps<{ kbId: string }>()
-const store = useNewsStore()
+const store = useKbStore()
+const taskStore = useTaskStore()
 const chatPanelRef = ref<InstanceType<typeof KBChatPanel> | null>(null)
 const generatePanelRef = ref<InstanceType<typeof KBGeneratePanel> | null>(null)
 const showSidebar = ref(true)

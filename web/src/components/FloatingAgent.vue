@@ -359,7 +359,7 @@
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute } from 'vue-router'
-import { useNewsStore } from '@/stores'
+import { useNewsStore, useAgentUiStore, useTaskStore } from '@/stores'
 import {
   streamAgentChat,
   publishArticle as apiPublishArticle,
@@ -383,6 +383,8 @@ const props = withDefaults(defineProps<{ offsetRight?: number; embedded?: boolea
   embedded: false,
 })
 const store = useNewsStore()
+const agentUi = useAgentUiStore()
+const taskStore = useTaskStore()
 const route = useRoute()
 const isNewsPage = computed(() => route.name === 'news')
 const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } =
@@ -408,8 +410,8 @@ const MIN_W = 340
 const MIN_H = 420
 
 watch([dockedRight, panelW], () => {
-  store.agentDockedRight = dockedRight.value
-  store.agentPanelWidth = panelW.value
+  agentUi.agentDockedRight = dockedRight.value
+  agentUi.agentPanelWidth = panelW.value
 })
 
 const messagesRef = ref<HTMLElement | null>(null)
@@ -575,9 +577,7 @@ async function doPublish(msg: ChatMessage, platform: string, imageOptions?: Imag
           ?.slice(0, 30) || 'AI 生成内容'
       await publishByContent(title, msg.content, platform, imageOptions)
     }
-    store.startTaskStream()
-    store.showTaskPanel = true
-    await store.loadTasks()
+    await taskStore.notifyTaskStarted()
     ElMessage.success(`已提交发布到${platformLabels[platform] || platform}，请在任务列表中查看进度`)
   } catch (e: any) {
     ElMessage.error(`发布失败：${e.message}`)

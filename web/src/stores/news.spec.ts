@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useNewsStore } from './index'
+import { useNewsStore } from './news'
 
 vi.mock('@/api', () => ({
   fetchNews: vi.fn(),
@@ -39,6 +39,7 @@ vi.mock('@/api', () => ({
 describe('useNewsStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    vi.clearAllMocks()
   })
 
   it('has correct initial state', () => {

@@ -3,12 +3,12 @@
     <div class="publish-main">
       <el-tabs v-model="activeTab">
         <el-tab-pane label="已生成文章" name="articles">
-          <div v-if="store.articles.length === 0" class="empty-state">
+          <div v-if="articleStore.articles.length === 0" class="empty-state">
             <el-empty description="暂无文章，请先在生成文章标签中生成" />
           </div>
 
           <div v-else class="article-list">
-            <div v-for="art in store.articles" :key="art.article_id" class="article-card">
+            <div v-for="art in articleStore.articles" :key="art.article_id" class="article-card">
               <div class="art-title">{{ art.title }}</div>
               <div class="art-meta">
                 <el-tag size="small" effect="plain" :type="getStyleTagType(art.style)">
@@ -49,13 +49,13 @@
         </el-tab-pane>
 
         <el-tab-pane label="发布记录" name="log">
-          <div v-if="store.publishLog.length === 0" class="empty-state">
+          <div v-if="publishStore.publishLog.length === 0" class="empty-state">
             <el-empty description="暂无发布记录" />
           </div>
 
           <el-timeline v-else>
             <el-timeline-item
-              v-for="rec in store.publishLog"
+              v-for="rec in publishStore.publishLog"
               :key="rec.article_id + rec.platform + rec.timestamp"
               :timestamp="formatTime(rec.timestamp)"
               :type="rec.success ? 'success' : 'danger'"
@@ -97,14 +97,16 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { renderSafeMarkdown } from '@/utils/markdown'
-import { useNewsStore } from '@/stores'
+import { useArticleStore, usePublishStore, useTaskStore } from '@/stores'
 import { STYLE_LABELS, PLATFORM_LABELS } from '@/types'
 import type { ImagePublishOptions } from '@/composables/useWechatPublish'
 import { useWechatPublish } from '@/composables/useWechatPublish'
 import WechatImageOptionsDialog from '@/components/WechatImageOptionsDialog.vue'
 import FloatingAgent from '@/components/FloatingAgent.vue'
 
-const store = useNewsStore()
+const articleStore = useArticleStore()
+const publishStore = usePublishStore()
+const taskStore = useTaskStore()
 const activeTab = ref('articles')
 const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } =
   useWechatPublish()
@@ -150,7 +152,9 @@ async function handlePublish(
 ) {
   const label = getPlatformLabel(platform)
   try {
-    await store.publish(articleId, platform, imageOptions)
+    await publishStore.publish(articleId, platform, imageOptions)
+    // 发布后统一收口：开启任务流、展开面板、刷新任务列表
+    await taskStore.notifyTaskStarted()
     ElMessage.success(`已提交发布到${label}，请在任务列表中查看进度`)
   } catch (e: any) {
     ElMessage.error(`发布失败：${e.message}`)
@@ -158,8 +162,8 @@ async function handlePublish(
 }
 
 onMounted(async () => {
-  await store.loadArticles()
-  await store.loadPublishLog()
+  await articleStore.loadArticles()
+  await publishStore.loadPublishLog()
 })
 </script>
 

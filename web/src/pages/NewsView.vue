@@ -80,9 +80,9 @@ import NewsDetail from '@/components/NewsDetail.vue'
 import KeywordSettings from '@/components/KeywordSettings.vue'
 import TaskPanel from '@/components/TaskPanel.vue'
 import PublishPanel from '@/components/PublishPanel.vue'
-import { useNewsStore } from '@/stores'
+import { useTaskStore } from '@/stores'
 
-const store = useNewsStore()
+const store = useTaskStore()
 
 const columnsRef = ref<HTMLElement | null>(null)
 const leftWidth = ref(360)
