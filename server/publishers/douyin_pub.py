@@ -9,7 +9,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from config import PUBLISH_MANUAL_TIMEOUT, UPLOAD_DIR
+from config import UPLOAD_DIR
 
 from .base import BrowserPublisher, NeedLoginError, PublishResult, random_delay
 from .image_archive import archive_key, try_read_archive, write_archive
@@ -495,15 +495,17 @@ class DouyinPublisher(BrowserPublisher):
 
         # 7. 等待用户发布
         #    发布成功后页面会跳转到 /content/manage 页面
+        #    不设超时轮询：等用户手动点「发布」。若用户手动关浏览器窗口，
+        #    访问 page 抛异常，视为放弃、退出循环。
         published = False
-        for _ in range(PUBLISH_MANUAL_TIMEOUT):
+        while not published:
             await asyncio.sleep(1)
-            current_url = page.url
-            # 发布成功后跳转到内容管理页
-            if MANAGE_URL_PATTERN in current_url.lower():
-                published = True
-                break
             try:
+                current_url = page.url
+                # 发布成功后跳转到内容管理页
+                if MANAGE_URL_PATTERN in current_url.lower():
+                    published = True
+                    break
                 toast = await page.query_selector("[class*='success'], .toast, .notification")
                 if toast:
                     text = await toast.text_content()
@@ -511,7 +513,9 @@ class DouyinPublisher(BrowserPublisher):
                         published = True
                         break
             except Exception:
-                pass
+                # 用户手动关闭浏览器窗口，page 已销毁，视为放弃
+                logger.info("Douyin: browser closed by user, treat as not published")
+                break
 
         if published:
             return PublishResult(

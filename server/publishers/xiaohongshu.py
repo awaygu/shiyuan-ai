@@ -9,7 +9,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from config import PUBLISH_MANUAL_TIMEOUT, UPLOAD_DIR
+from config import UPLOAD_DIR
 
 from .base import BrowserPublisher, NeedLoginError, PublishResult, random_delay
 from .image_archive import archive_key, try_read_archive, write_archive
@@ -45,6 +45,9 @@ class XiaohongshuPublisher(BrowserPublisher):
         logger.debug("XHS _detect_login: url=%s", current_url)
         if "login" in current_url.lower():
             return False
+        # 仅信任明确的登录信号（头像元素出现）；切勿用"URL 在创作者域且不含
+        # login"兜底判定——未登录时小红书登录墙常为弹窗或停在首页，URL 同样满足
+        # 该条件，会误判登录成功、提前关窗，导致后续报"登录已过期"。
         try:
             avatar = await page.query_selector(".user-avatar, .avatar, .creator-avatar, [class*='avatar']")
             logger.debug("XHS _detect_login: avatar=%s", avatar is not None)
@@ -52,9 +55,6 @@ class XiaohongshuPublisher(BrowserPublisher):
                 return True
         except Exception:
             pass
-        if "creator.xiaohongshu.com" in current_url and "login" not in current_url.lower():
-            logger.debug("XHS _detect_login: on creator page, assuming logged in")
-            return True
         return False
 
     async def _shot(self, page, name: str) -> None:
@@ -414,12 +414,20 @@ class XiaohongshuPublisher(BrowserPublisher):
         await self._progress("图文已填好，请在浏览器窗口检查后手动点「发布」")
         await self._shot(page, "xhs_06_final.png")
 
+        # 不设超时轮询：等用户在浏览器窗口手动点「发布」。检测到页面离开
+        # /publish/publish 即判发布成功。若用户手动关闭浏览器窗口，访问 page
+        # 会抛异常，视为放弃、退出循环。
         published = False
-        for _ in range(PUBLISH_MANUAL_TIMEOUT):
+        while not published:
             await asyncio.sleep(1)
-            current_url = page.url
-            if "/publish/publish" not in current_url:
-                published = True
+            try:
+                current_url = page.url
+                if "/publish/publish" not in current_url:
+                    published = True
+                    break
+            except Exception:
+                # 用户手动关闭浏览器窗口，page 已销毁，视为放弃
+                logger.info("XHS: browser closed by user, treat as not published")
                 break
 
         if published:
