@@ -64,6 +64,12 @@ async def client(monkeypatch, tmp_path) -> TestClient:
     await db.close_db()
     monkeypatch.setattr(db, "_db", None)
 
+    # checkpointer 用同步 sqlite3，DB_PATH 在 init_db 时设为模块全局。
+    # 启动时 lifespan 用 session 级 MEMORY_DB_PATH 调 init_memory_db 重新设置 DB_PATH，
+    # 故每测试独立 DB_PATH 必须在 TestClient 启动（lifespan 跑完）之后重置，否则会被
+    # 覆盖回 session 级共享路径，导致跨测试数据污染。与主 DB 同样的隔离语义（仿上面对
+    # db.DB_PATH 的处理）。init_db 重新建表，确保新库 schema 就绪。
+
     # Avoid any real network calls during lifespan / startup.
     # newsnow_batch / rss_batch 现归 crawlers 模块所有（deps 通过 __getattr__/
     # re-export 转发到同一对象），直接 patch 源模块上的对象方法。
@@ -85,6 +91,11 @@ async def client(monkeypatch, tmp_path) -> TestClient:
     _stores.publish_log.clear()
 
     with TestClient(app_module.app) as test_client:
+        # lifespan 已跑完，此时 checkpointer.DB_PATH 被 init_memory_db 设回 session 级
+        # 共享路径。重置为每测试独立 tmp_path 并重新建表，隔离 checkpointer 数据。
+        import core.checkpointer as _checkpointer
+        _checkpointer.DB_PATH = str(tmp_path / "agent_memory.db")
+        _checkpointer.init_db(_checkpointer.DB_PATH)
         yield test_client
 
     await db.close_db()
