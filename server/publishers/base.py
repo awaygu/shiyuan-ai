@@ -237,8 +237,9 @@ class BrowserPublisher(BasePublisher):
         from playwright.async_api import async_playwright
 
         async with async_playwright() as pw:
-            headless = PUBLISH_HEADLESS
-            browser = await pw.chromium.launch(headless=headless)
+            # 发布为半自动流程：填好表单后等用户在浏览器窗口手动点「发布」，
+            # 故必须以有头模式启动，否则用户看不到窗口、无法手动发布。
+            browser = await pw.chromium.launch(headless=False)
             context = await browser.new_context(storage_state=cookies)
             page = await context.new_page()
 
