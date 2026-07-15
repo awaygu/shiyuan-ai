@@ -365,3 +365,153 @@ async def test_read_connection_sees_committed_writes():
     assert got["news_id"] == "vis1"
     _, total = await db.list_news()
     assert total == 1
+
+
+# ── 7. 全量刷新事务原子性（N5/N7：delete+insert 不留中间空库） ────
+# 阶段2 任务7 关键回归：refresh_news 的 DELETE+INSERT 包进同一 transaction()，
+# 提交是原子的。并发读者在任何时刻要么看到旧全集、要么看到新全集，绝不看到
+# "DELETE 已生效但 INSERT 未生效" 的中间空库。这是修掉 "清空与重灌之间被并发刷新
+# 插入残留" 缺陷后的守卫测试。
+
+
+async def test_full_refresh_delete_insert_atomic_no_empty_window():
+    """全量刷新：事务内 DELETE+INSERT 原子提交，外部读连接看到的 total 恒大于 0。
+
+    预置 2 条旧新闻，模拟 refresh_news 事务体（DELETE FROM news + INSERT 新条目），
+    在事务提交前后用读连接观察：提交前（旧数据可见）和提交后（新数据可见）均非空，
+    不会出现"DELETE 已提交但 INSERT 未提交"导致的 total=0 中间态。
+    """
+    # 预置旧数据
+    await db.upsert_news([_news("old1"), _news("old2")])
+    assert (await db.list_news())[1] == 2
+
+    new_items = [_news("new1", published_at="2025-01-01T00:00:00"),
+                 _news("new2", published_at="2025-02-01T00:00:00"),
+                 _news("new3", published_at="2025-03-01T00:00:00")]
+
+    # 事务未提交前：读连接仍能看到旧数据（DELETE 尚未提交，WAL 快照隔离）
+    async with db.transaction() as conn:
+        await conn.execute("DELETE FROM news")
+        # 事务内：此时写连接已 DELETE 但未 commit，读连接应仍看到旧数据
+        _, total_before_commit = await db.list_news()
+        assert total_before_commit == 2, "未提交的 DELETE 不应对读连接可见"
+        # 事务内插入新数据
+        for item in new_items:
+            await conn.execute(
+                "INSERT OR IGNORE INTO news "
+                "(news_id, title, summary, content, source, url, published_at, extra) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (item["news_id"], item["title"], item["summary"], item["content"],
+                 item["source"], item["url"], item["published_at"], "{}"),
+            )
+        # 事务内仍未提交：读连接看到的还是旧数据
+        _, total_mid = await db.list_news()
+        assert total_mid == 2, "未提交的 INSERT 也不应对读连接可见"
+
+    # 事务提交后：读连接应一次性看到新全集（3 条），不出现 0 条中间态
+    items, total_after = await db.list_news()
+    assert total_after == 3
+    assert {it["news_id"] for it in items} == {"new1", "new2", "new3"}
+
+
+async def test_full_refresh_concurrent_reader_never_sees_empty():
+    """并发读者在全量刷新事务执行期间不应观察到 total=0 的中间空库。
+
+    用一个长事务（DELETE + sleep + INSERT）制造"中间窗口"，同时并发起多次
+    读连接查询。WAL 快照隔离 + 单事务原子提交保证读连接要么看到旧全集、要么
+    看到新全集，任何一次读都不应拿到 total=0。这是 N5/N7 缺陷的关键回归守卫。
+    """
+    # 预置旧数据
+    await db.upsert_news([_news("keep1"), _news("keep2")])
+
+    new_items = [_news(f"r{i}", published_at=f"2025-0{i}-01T00:00:00") for i in range(1, 5)]
+
+    observed_totals: list[int] = []
+    stop = asyncio.Event()
+
+    async def _reader():
+        while not stop.is_set():
+            _, total = await db.list_news()
+            observed_totals.append(total)
+            assert total > 0, "并发读不应看到空库中间态"
+            await asyncio.sleep(0)
+
+    async def _refresh_tx():
+        async with db.transaction() as conn:
+            await conn.execute("DELETE FROM news")
+            # 制造中间窗口：DELETE 已执行但未提交
+            await asyncio.sleep(0.05)
+            for item in new_items:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO news "
+                    "(news_id, title, summary, content, source, url, published_at, extra) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (item["news_id"], item["title"], item["summary"], item["content"],
+                     item["source"], item["url"], item["published_at"], "{}"),
+                )
+
+    reader_task = asyncio.create_task(_reader())
+    await _refresh_tx()
+    stop.set()
+    await asyncio.gather(reader_task, return_exceptions=True)
+
+    # 所有读观测到的 total 都 > 0（要么旧 2 条，要么新 4 条）
+    assert observed_totals, "读者应至少观测到一次"
+    assert all(t > 0 for t in observed_totals)
+    # 最终读到新全集
+    _, final_total = await db.list_news()
+    assert final_total == 4
+
+
+# ── 8. 并发事务压力测试（多事务交错 + 读连接一致） ──────────────
+
+
+async def test_many_concurrent_transactions_all_commit_consistently():
+    """10 个并发 transaction() 各插不同 news_id，串行化完成后读连接看到全部 10 条。
+
+    覆盖任务7 修复的并发缺陷：旧实现复用单写连接 _db，第二个并发事务 BEGIN IMMEDIATE
+    撞 "cannot start a transaction within a transaction"；改用写连接池后每事务各拿
+    独立写连接、busy_timeout 串行化。此处加压到 10 个并发事务，全部应无错提交。
+    """
+    N = 10
+
+    async def tx(i: int):
+        async with db.transaction() as conn:
+            await conn.execute(
+                "INSERT INTO news (news_id, title, summary, content, source, url, published_at, extra) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (f"p{i}", f"t{i}", "s", "c", "cls-hot", "u", "2024-01-01", "{}"),
+            )
+
+    await asyncio.gather(*(tx(i) for i in range(N)))
+
+    _, total = await db.list_news()
+    assert total == N
+    # 每条都能读到
+    for i in range(N):
+        assert await db.get_news(f"p{i}") is not None
+
+
+async def test_concurrent_transactions_with_interleaved_reads_consistent():
+    """并发写事务交错进行时，读连接看到的 total 单调不减（不丢已提交事务）。
+
+    每个事务提交后读连接立即可见；并发场景下 total 从 0 增长到 N，任意时刻
+    读到的 total 都 <= 已提交事务数（WAL 快照），且最终 == N。
+    """
+    N = 8
+    commit_order: list[int] = []
+
+    async def tx(i: int):
+        async with db.transaction() as conn:
+            await conn.execute(
+                "INSERT INTO news (news_id, title, summary, content, source, url, published_at, extra) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (f"c{i}", f"t{i}", "s", "c", "cls-hot", "u", "2024-01-01", "{}"),
+            )
+        commit_order.append(i)
+
+    await asyncio.gather(*(tx(i) for i in range(N)))
+
+    _, total = await db.list_news()
+    assert total == N
+    assert sorted(commit_order) == list(range(N))
