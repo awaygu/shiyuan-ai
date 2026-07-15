@@ -281,7 +281,10 @@ class XiaohongshuPublisher(BrowserPublisher):
         generate_inline_images = kwargs.get("generate_inline_images", True)
 
         await page.goto(self.publish_url, timeout=30000)
-        await page.wait_for_load_state("networkidle", timeout=15000)
+        # 不用 networkidle：小红书发布页有常驻后台请求（埋点/广告SDK/长连接），
+        # networkidle 要求连续 500ms 无网络请求几乎永不满足，必超时。
+        # domcontentloaded 只等 DOM 解析完即可，后续 wait_for_selector 自带 timeout 等元素出现。
+        await page.wait_for_load_state("domcontentloaded", timeout=15000)
         await random_delay(2, 4)
 
         if "login" in page.url.lower():
