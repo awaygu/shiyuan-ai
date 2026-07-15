@@ -91,10 +91,10 @@ async def generate_article(req: GenerateArticleRequest):
     article = await deps.interpreter.generate_article(items, style, req.title, prompt=req.prompt)
     article["article_id"] = f"art_{uuid4().hex[:12]}"
 
-    async with deps.article_lock:
-        # 先落库（DB 事实来源），再回填缓存（append 即同步缓存）。
-        await save_article(article)
-        deps.article_store.append(article)
+    # save_article 是 INSERT OR REPLACE，article_id 为 uuid4 无冲突，无需锁。
+    # 先落库（DB 事实来源），再回填缓存（append 即同步缓存）。
+    await save_article(article)
+    deps.article_store.append(article)
 
     return article
 
@@ -211,10 +211,10 @@ async def generate_article_stream(req: GenerateArticleRequest):
             "style": style.value,
             "news_ids": [n.get("news_id") for n in items],
         }
-        async with deps.article_lock:
-            # 先落库（DB 事实来源），再回填缓存（append 即同步缓存）。
-            await save_article(article)
-            deps.article_store.append(article)
+        # save_article 是 INSERT OR REPLACE，article_id 为 uuid4 无冲突，无需锁。
+        # 先落库（DB 事实来源），再回填缓存（append 即同步缓存）。
+        await save_article(article)
+        deps.article_store.append(article)
 
         done = json.dumps({"type": "done", "article_id": article_id}, ensure_ascii=False)
         yield f"data: {done}\n\n"

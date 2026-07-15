@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 import api.schedule as schedule_mod
+import api.schedule_state as schedule_state
 import api.stores as stores
 import database as db
 from api import deps
@@ -38,8 +39,11 @@ def test_schedule_status_endpoint(client: TestClient):
 
 def test_schedule_toggle_start_and_stop(client: TestClient, monkeypatch):
     """toggle 端点启动/停止调度；启动会 create_task 两个循环，需立即停止避免后台跑飞。"""
-    # 确保 from start
-    deps.schedule_running = False
+    # 直接写源模块（与 app.py lifespan / toggle 端点一致），不要写 deps——
+    # 写 deps 只会 shadow 在 deps.__dict__，toggle 端点写源模块后 deps 读取仍
+    # 拿到 shadow 的旧值，导致跨路径不一致。
+    schedule_state.schedule_running = False
+
     # patch 循环协程为立即返回的空函数，避免真实 sleep
     async def _noop_loop():
         return None
@@ -58,7 +62,8 @@ def test_schedule_toggle_start_and_stop(client: TestClient, monkeypatch):
 
 def test_schedule_toggle_idempotent_when_already_running(client: TestClient, monkeypatch):
     """已 running 时再启用不应重复 create_task（无额外副作用）。"""
-    deps.schedule_running = True
+    schedule_state.schedule_running = True
+
     async def _noop_loop():
         return None
 
@@ -67,7 +72,7 @@ def test_schedule_toggle_idempotent_when_already_running(client: TestClient, mon
     resp = client.post("/api/schedule/toggle", json={"enabled": True})
     assert resp.status_code == 200
     assert resp.json()["running"] is True
-    deps.schedule_running = False  # 还原
+    schedule_state.schedule_running = False  # 还原
 
 
 def test_schedule_config_update_valid(client: TestClient):
@@ -82,9 +87,7 @@ def test_schedule_config_update_below_min_rejected(client: TestClient):
     """低于 SCHEDULE_MIN_INTERVAL 应返回 400。"""
     from config import SCHEDULE_MIN_INTERVAL
 
-    resp = client.post(
-        "/api/schedule/config", json={"newsnow_interval": SCHEDULE_MIN_INTERVAL - 1}
-    )
+    resp = client.post("/api/schedule/config", json={"newsnow_interval": SCHEDULE_MIN_INTERVAL - 1})
     assert resp.status_code == 400
 
 

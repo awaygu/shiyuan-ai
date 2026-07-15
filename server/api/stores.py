@@ -1,4 +1,4 @@
-"""In-memory caches (DB is the source of truth), locks, and lookup helpers.
+"""In-memory caches (DB is the source of truth) and lookup helpers.
 
 ``news_store`` / ``article_store`` / ``publish_log`` are now treated as
 **caches** over the SQLite tables. The database is the single source of
@@ -21,7 +21,6 @@ is simply replaced — invalidations target the currently-bound list.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 import database
@@ -36,13 +35,6 @@ import database
 news_store: list[dict[str, Any]] = []
 article_store: list[dict[str, Any]] = []
 publish_log: list[dict[str, Any]] = []
-
-# ── Concurrency locks ─────────────────────────────────────────────────
-# 保护 news_store / article_store 的并发写入临界区（"DB 查重 + DB 写 + 缓存失效"）。
-# publish_log 的写改走纯 DB（save_publish_record 是单条 INSERT，WAL 下并发安全），
-# 不再依赖 article_lock。
-news_lock = asyncio.Lock()
-article_lock = asyncio.Lock()
 
 
 # ── Cache invalidation ─────────────────────────────────────────────────

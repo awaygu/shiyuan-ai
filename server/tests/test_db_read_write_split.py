@@ -1,11 +1,13 @@
-"""阶段2 任务6 读写分离回归测试。
+"""阶段2 任务6/7 读写分离与事务并发回归测试。
 
 验证 database.py 的写连接（get_db）与读连接池（get_read_db）分离：
 - get_read_db 返回的连接与写连接不同实例（读不阻塞写）。
 - 读连接池复用空闲读连接（非每次新建）。
-- close_db 同时关闭写连接 + 清空读连接池（跨测试隔离）。
+- close_db 同时关闭写连接 + 写连接池 + 读连接池（跨测试隔离）。
 - upsert_news_returning 用 RETURNING 返回真正新增的 news_id 列表。
-- transaction 上下文管理器执行 BEGIN IMMEDIATE 并在异常时 rollback。
+- transaction 上下文管理器从写连接池借独立写连接、BEGIN IMMEDIATE，异常时 rollback。
+- transaction 并发安全：两个并发 transaction() 串行化执行不报错（替代旧 asyncio.Lock），
+  并发写同一表后数据一致。
 - 复合写函数（rename_kb_doc / delete_kb_doc / update_kb / delete_kb /
   create_conversation / save_kb_chunks / upsert_news）仍走写连接，SELECT 后的
   UPDATE/DELETE 在同一写连接内完成。
@@ -14,6 +16,8 @@
 """
 
 from __future__ import annotations
+
+import asyncio
 
 import pytest
 
@@ -163,11 +167,110 @@ async def test_transaction_rolls_back_on_exception():
     assert await db.get_news("rb1") is None
 
 
-async def test_transaction_uses_write_connection():
-    """transaction 拿的是写连接（与 get_db 同实例）。"""
+async def test_transaction_uses_independent_write_connection():
+    """transaction 借的是独立写连接（与 get_db 的单写连接不同实例）。
+
+    锁收窄后 transaction() 从写连接池借独立连接，使并发事务各拿独立连接、
+    各自 BEGIN IMMEDIATE，由 busy_timeout 在 DB 层串行化——而非共享单写连接
+    导致 "cannot start a transaction within a transaction" 报错。
+    """
     write_conn = await db.get_db()
     async with db.transaction() as conn:
-        assert conn is write_conn
+        assert conn is not write_conn
+
+
+# ── 4b. transaction 并发安全（锁收窄后替代 asyncio.Lock） ─────────
+
+
+async def test_concurrent_transactions_serialize_no_error():
+    """两个并发 transaction() 串行化执行、不报错。
+
+    旧实现复用单写连接 _db，第二个并发事务 BEGIN IMMEDIATE 会撞上
+    "cannot start a transaction within a transaction"。改用写连接池后，
+    两事务各拿独立写连接，第二个 BEGIN IMMEDIATE 遇写锁被占由 busy_timeout
+    在 DB 层重试等待，串行完成而非抛错。此处用 sleep 制造重叠窗口。
+    """
+    started: list[int] = []
+    finished: list[int] = []
+
+    async def tx_a():
+        async with db.transaction():
+            started.append(1)
+            await asyncio.sleep(0.05)  # 持有写锁 50ms，与 tx_b 重叠
+            finished.append(1)
+
+    async def tx_b():
+        async with db.transaction():
+            started.append(2)
+            finished.append(2)
+
+    # gather 会让两者交叠进入；tx_b 的 BEGIN IMMEDIATE 应等待 tx_a 提交
+    await asyncio.gather(tx_a(), tx_b())
+
+    # 两者都成功完成，无异常抛出
+    assert sorted(started) == [1, 2]
+    assert sorted(finished) == [1, 2]
+
+
+async def test_concurrent_transactions_write_consistency():
+    """并发事务各 upsert 不同 news_id，结果都在且数据一致。
+
+    BEGIN IMMEDIATE 在 DB 层串行化两个写事务（一个先提交，另一个再拿写锁），
+    各自 INSERT 不同 news_id 后均提交——读连接应同时看到两条记录。
+    不在事务体内用 barrier 同步：那会要求两个事务同时持有写锁，而写锁本就是
+    互斥的，会退化为 busy_timeout 超时报错。
+    """
+
+    async def tx(label: str):
+        async with db.transaction() as conn:
+            await conn.execute(
+                "INSERT INTO news (news_id, title, summary, content, source, url, published_at, extra) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (f"c-{label}", f"t-{label}", "s", "c", "cls-hot", "u", "2024-01-01", "{}"),
+            )
+
+    await asyncio.gather(tx("a"), tx("b"))
+
+    got_a = await db.get_news("c-a")
+    got_b = await db.get_news("c-b")
+    assert got_a is not None and got_a["title"] == "t-a"
+    assert got_b is not None and got_b["title"] == "t-b"
+    _, total = await db.list_news()
+    assert total == 2
+
+
+async def test_transaction_connection_returned_to_write_pool():
+    """事务结束后写连接归还到写连接池（供下次复用，非每次新建）。"""
+    # 首个事务建一条写连接，归还后池应有 1 条
+    async with db.transaction():
+        pass
+    assert db._write_pool is not None
+    assert len(db._write_pool) == 1
+    first = db._write_pool[0]
+    # 第二个事务复用池中的同一条连接
+    async with db.transaction() as conn:
+        assert conn is first
+    # 复用后仍归还到池
+    assert len(db._write_pool) == 1
+
+
+async def test_close_db_resets_write_pool():
+    """close_db 关闭并置空写连接池，下次 transaction() 按新路径重建。"""
+    async with db.transaction():
+        pass
+    assert db._write_pool is not None
+    assert len(db._write_pool) == 1
+
+    await db.close_db()
+    assert db._write_pool is None
+    assert db._db is None
+
+    # 重建后 transaction() 能正常用（新连接按当前 DB_PATH 建）
+    await db.init_db()
+    async with db.transaction() as conn:
+        await conn.execute("SELECT 1")
+    assert db._write_pool is not None
+    await db.close_db()
 
 
 # ── 5. 复合写函数仍走写连接（间接验证：SELECT 后 UPDATE/DELETE 一致） ──

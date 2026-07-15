@@ -5,7 +5,7 @@ the ``api`` package. The implementation has been split into focused
 submodules:
 
 - ``api.constants``   — SSE headers and other cross-router constants
-- ``api.stores``      — in-memory lists (news/article/publish), locks, lookups
+- ``api.stores``      — in-memory lists (news/article/publish), lookups
 - ``api.schedule_state`` — scheduling knobs and crawl timestamps
 - ``api.crawlers``    — NewsNow crawler registry + batch crawler instances
 - ``api.singletons``  — interpreter, publishers, keyword filter, resolve_style
@@ -24,10 +24,12 @@ import time and silently break sharing once ``app.py`` reassigns the
 source module. Instead they are resolved live via the module-level
 ``__getattr__`` (PEP 562) so ``deps.news_store`` always reflects the
 current ``stores.news_store``. Mutations (``deps.news_store.append``)
-go straight to the underlying object; rebinds made through ``deps``
-(e.g. ``deps.schedule_running = True`` in ``schedule.py``) shadow the
-delegation locally, which is self-consistent because all readers go
-through ``deps``.
+go straight to the underlying object; **writes** to these names must
+go to the source module (e.g. ``schedule_state.schedule_running = True``
+in ``schedule.py``), not through ``deps`` — a ``deps.X = ...`` assign
+shadows the delegation in ``deps.__dict__`` and never reaches the
+source module, so the lifespan and the toggle endpoint would see
+different values. Reads through ``deps`` always delegate correctly.
 """
 
 # ruff: noqa: F822  __all__ lists runtime state names resolved via __getattr__ (PEP 562),
@@ -92,14 +94,12 @@ from .singletons import (
     resolve_style,
 )
 from .stores import (
-    article_lock,
     find_article,
     find_news,
     find_news_batch,
     invalidate_articles,
     invalidate_news,
     invalidate_publish_log,
-    news_lock,
 )
 
 # ── Lazy state delegation ────────────────────────────────────────────
@@ -122,9 +122,12 @@ def __getattr__(name: str):
     """Resolve runtime-reassignable state names from their source modules.
 
     PEP 562 module-level ``__getattr__``: invoked only when ``name`` is
-    absent from this module's ``__dict__``, so a rebind like
-    ``deps.schedule_running = True`` shadows the delegation locally and
-    is read back consistently by all ``deps.X`` consumers.
+    absent from this module's ``__dict__``, so reads like
+    ``deps.schedule_running`` always forward to the source module. A
+    ``deps.schedule_running = X`` assign, however, would shadow the
+    delegation in ``deps.__dict__`` and never reach the source module —
+    which is why all writers (``app.py`` lifespan, ``schedule.py``) write
+    the source module directly. See the module docstring for details.
     """
     module = _STATE_DELEGATION.get(name)
     if module is not None:
@@ -142,8 +145,6 @@ __all__ = [
     "news_store",
     "article_store",
     "publish_log",
-    "news_lock",
-    "article_lock",
     "find_news",
     "find_news_batch",
     "find_article",

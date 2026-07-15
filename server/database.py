@@ -4,15 +4,21 @@
 （独立读连接池，WAL 下读不阻塞写）。
 
 - ``get_db()``：写连接，惰性建立，设 row_factory + WAL/busy_timeout/foreign_keys
-  三条 PRAGMA。迁移与所有写/复合写函数共用此连接。
+  三条 PRAGMA。迁移与所有写/复合写函数共用此连接。语义保持不变：永远返回
+  同一个全局写连接 ``_db``。
 - ``get_read_db()``：异步上下文管理器，从读连接池借一个连接（池空且未达上限
   时新建，设 row_factory + WAL），用完归还池。池大小由 ``config.KB_DB_POOL_SIZE``
   控制。读连接复用而非每次新建，但分页等需同一快照的多次 SELECT 在一次借用内
   复用同一连接。
+- ``transaction()``：写事务上下文管理器，从**写连接池**借一条独立写连接
+  （``BEGIN IMMEDIATE`` 拿写锁），用完归还池。每事务独占一条连接，故并发
+  ``transaction()`` 各拿独立连接、各自 ``BEGIN IMMEDIATE``，遇写锁被占时由
+  ``busy_timeout`` 在 DB 层重试等待（串行化而非报错），替代旧的 ``asyncio.Lock``。
+  与单写连接 ``_db`` 互不影响。
 
-测试隔离：``close_db()`` 同时关闭写连接 + 清空读连接池（关闭所有读连接并置空
-池与信号量），保证 ``monkeypatch db.DB_PATH`` 后下一次 ``get_read_db()`` 按新路径
-重建。``_db`` 变量名保持不变以兼容 conftest 的 ``monkeypatch.setattr(db, "_db", None)``。
+测试隔离：``close_db()`` 同时关闭写连接 + 写连接池 + 清空读连接池（关闭所有
+读连接并置空池与信号量），保证 ``monkeypatch db.DB_PATH`` 后下一次 ``get_read_db()``
+按新路径重建。``_db`` 变量名保持不变以兼容 conftest 的 ``monkeypatch.setattr(db, "_db", None)``。
 """
 
 from __future__ import annotations
@@ -37,6 +43,13 @@ _db: aiosqlite.Connection | None = None
 # 池大小在首次建池时按 config.KB_DB_POOL_SIZE 固定，close_db() 清空后下次重建。
 _read_pool: list[aiosqlite.Connection] | None = None
 _read_semaphore: Any = None  # asyncio.Semaphore | None
+
+# 写连接池：transaction() 每事务借一条独立写连接，用完归还复用。
+# 池仅复用、不借信号量限流——写事务的串行化由 BEGIN IMMEDIATE 拿写锁 +
+# busy_timeout 在 DB 层保证（第二个 BEGIN IMMEDIATE 遇写锁被占会重试等待，
+# 而非报错）。池大小随并发写事务数增长，事务归还后空闲连接留作下次复用。
+# 与单写连接 _db 互不影响：get_db() 仍只服务迁移 runner 与复合写函数。
+_write_pool: list[aiosqlite.Connection] | None = None
 
 
 def _pool_size() -> int:
@@ -63,6 +76,21 @@ async def get_db() -> aiosqlite.Connection:
 
 async def _new_read_connection() -> aiosqlite.Connection:
     """新建一条读连接：设 row_factory + WAL（只读无需 busy_timeout/foreign_keys，但设上无害）。"""
+    conn = await aiosqlite.connect(DB_PATH)
+    conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA busy_timeout=5000")
+    await conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+async def _new_write_connection() -> aiosqlite.Connection:
+    """新建一条独立写连接：设 row_factory + WAL/busy_timeout/foreign_keys。
+
+    供 transaction() 写连接池使用——每事务独占一条连接，使并发事务各拿独立
+    连接、各自 BEGIN IMMEDIATE，由 busy_timeout 在 DB 层串行化（而非共享单写
+    连接导致"cannot start a transaction within a transaction"）。
+    """
     conn = await aiosqlite.connect(DB_PATH)
     conn.row_factory = aiosqlite.Row
     await conn.execute("PRAGMA journal_mode=WAL")
@@ -103,15 +131,22 @@ async def get_read_db() -> Any:
 
 
 async def close_db() -> None:
-    """关闭写连接 + 清空读连接池（关闭所有读连接并置空池与信号量）。
+    """关闭写连接 + 写连接池 + 清空读连接池（关闭所有连接并置空池与信号量）。
 
-    测试中 monkeypatch db.DB_PATH 后调用本函数，确保下一次 get_read_db()
+    测试中 monkeypatch db.DB_PATH 后调用本函数，确保下一次 get_read_db()/transaction()
     按新路径重建池；_db 置 None 让 get_db() 重建写连接。
     """
-    global _db, _read_pool, _read_semaphore
+    global _db, _read_pool, _read_semaphore, _write_pool
     if _db is not None:
         await _db.close()
         _db = None
+    if _write_pool is not None:
+        for conn in _write_pool:
+            try:
+                await conn.close()
+            except Exception:
+                logger.warning("Failed to close a write connection", exc_info=True)
+        _write_pool = None
     if _read_pool is not None:
         for conn in _read_pool:
             try:
@@ -134,8 +169,8 @@ async def init_db() -> None:
     运行器通过 get_db() 拿实时连接，测试中 conftest 对 DB_PATH/_db 的
     monkeypatch 在此处生效，每个测试的空库都会正确跑 0001_initial。
 
-    读连接池惰性建立（首次 get_read_db() 时按 config.KB_DB_POOL_SIZE 建池），
-    此处不预建；close_db() 会清空池。
+    读连接池与写连接池均惰性建立（首次 get_read_db()/transaction() 时按需建池），
+    此处不预建；close_db() 会清空两池。
     """
     from migrations.runner import run_migrations
 
@@ -145,10 +180,15 @@ async def init_db() -> None:
 
 @asynccontextmanager
 async def transaction() -> Any:
-    """写事务上下文管理器：拿写连接并 BEGIN IMMEDIATE（拿写锁串行化写事务）。
+    """写事务上下文管理器：从写连接池借独立写连接并 BEGIN IMMEDIATE（拿写锁串行化写事务）。
 
     供调用方把"多步写 + 其间的读"包进同一事务，退出时自动 commit/rollback：
     正常退出 commit，抛异常 rollback 并重新抛出。本任务只提供能力，不自行调用。
+
+    每事务独占一条写连接（从写连接池借，用完归还复用），故两个并发 transaction()
+    各拿独立连接、各自 BEGIN IMMEDIATE——遇写锁被占时由 busy_timeout 在 DB 层
+    重试等待（串行化），而非共享单写连接导致 ``cannot start a transaction within
+    a transaction`` 报错。这是锁收窄后替代旧 asyncio.Lock 的并发安全机制。
 
     用法::
 
@@ -156,14 +196,21 @@ async def transaction() -> Any:
             await db.execute("UPDATE ...")
             await db.execute("DELETE ...")
     """
-    db = await get_db()
-    await db.execute("BEGIN IMMEDIATE")
+    global _write_pool
+    if _write_pool is None:
+        _write_pool = []
+    conn = _write_pool.pop() if _write_pool else await _new_write_connection()
     try:
-        yield db
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        raise
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield conn
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+    finally:
+        # 归还到写连接池复用；无论提交/回滚/甚至 BEGIN 失败，连接此时均无活动事务
+        _write_pool.append(conn)
 
 
 async def upsert_news(items: list[dict[str, Any]]) -> int:

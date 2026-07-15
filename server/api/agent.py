@@ -17,7 +17,7 @@ from config import LLM_MODEL, NEWS_SOURCES
 from core.interpreter import NewsInterpreter
 from core.langsmith_utils import build_langsmith_config
 from core.style_manager import build_prompt_display_text, prompt_manager
-from database import delete_all_news, news_id_exists_batch, save_article, upsert_news
+from database import save_article, transaction
 
 from . import deps
 from .interpret import LIMITED_CONTENT_MSG
@@ -246,31 +246,51 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
     @tool
     async def refresh_news() -> str:
         """重新爬取所有新闻源，获取最新新闻。当用户要求刷新、更新新闻时调用。"""
-        async with deps.news_lock:
-            all_raw: list = []
-            results = {}
-            try:
-                newsnow_results = await deps.newsnow_batch.crawl_all()
-                for platform_id, items in newsnow_results.items():
-                    all_raw.extend(items)
-                    results[f"newsnow_{platform_id}"] = len(items)
-            except Exception as e:
-                results["newsnow_error"] = str(e)
-            try:
-                rss_results = await deps.rss_batch.crawl_all()
-                for feed_id, items in rss_results.items():
-                    all_raw.extend(items)
-                    results[f"rss_{feed_id}"] = len(items)
-            except Exception as e:
-                results["rss_error"] = str(e)
-            filtered = deps.kw_filter.filter_newsitems(all_raw)
-            new_items = [item.to_dict() for item in filtered]
-            # 语义：refresh_news 是"重新刷新全部"，先清空 DB（事实来源）再 insert
-            # 新的，避免内存清空但 DB 残留导致的不一致。先落库，再失效缓存并回填。
-            await delete_all_news()
-            await upsert_news(new_items)
-            deps.invalidate_news()
-            deps.news_store.extend(new_items)
+        # 爬取在临界区外（网络 IO 不需要串行化）。
+        all_raw: list = []
+        results = {}
+        try:
+            newsnow_results = await deps.newsnow_batch.crawl_all()
+            for platform_id, items in newsnow_results.items():
+                all_raw.extend(items)
+                results[f"newsnow_{platform_id}"] = len(items)
+        except Exception as e:
+            results["newsnow_error"] = str(e)
+        try:
+            rss_results = await deps.rss_batch.crawl_all()
+            for feed_id, items in rss_results.items():
+                all_raw.extend(items)
+                results[f"rss_{feed_id}"] = len(items)
+        except Exception as e:
+            results["rss_error"] = str(e)
+        # 事务外：过滤
+        filtered = deps.kw_filter.filter_newsitems(all_raw)
+        new_items = [item.to_dict() for item in filtered]
+        # 事务内：delete + insert 原子（BEGIN IMMEDIATE 串行化写事务，避免清空与
+        # 重灌之间被并发刷新插入残留）。INSERT OR IGNORE SQL 同 upsert_news。
+        async with transaction() as db:
+            await db.execute("DELETE FROM news")
+            for item in new_items:
+                extra_json = json.dumps(item.get("extra", {}), ensure_ascii=False)
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO news
+                        (news_id, title, summary, content, source, url, published_at, extra)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item["news_id"],
+                        item["title"],
+                        item.get("summary", ""),
+                        item.get("content", ""),
+                        item.get("source", ""),
+                        item.get("url", ""),
+                        item.get("published_at", ""),
+                        extra_json,
+                    ),
+                )
+        # 事务后锁外：原子替换缓存（delete+insert 已提交，缓存与 DB 对齐）。
+        deps.news_store[:] = new_items
         return json.dumps(
             {
                 "total_news": len(new_items),
@@ -294,17 +314,49 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         else:
             available = list(deps.NEWSNOW_CRAWLERS.keys()) + [f.id for f in deps.DEFAULT_RSS_FEEDS]
             return f"未知的新闻源: {source}。可用源: {', '.join(available)}"
-        async with deps.news_lock:
-            filtered = deps.kw_filter.filter_newsitems(items)
-            candidates = [item.to_dict() for item in filtered]
-            # DB 查重：拿已存在 news_id 集合，未存在的才新增。先落库再回填缓存。
-            existing = await news_id_exists_batch([d["news_id"] for d in candidates])
-            new_items = [d for d in candidates if d["news_id"] not in existing]
-            new_count = len(new_items)
-            if new_items:
-                await upsert_news(new_items)
-                deps.news_store.extend(new_items)
-        return json.dumps({"source": source, "total": len(items), "new": new_count}, ensure_ascii=False)
+        # 事务外：过滤
+        filtered = deps.kw_filter.filter_newsitems(items)
+        candidates = [item.to_dict() for item in filtered]
+        # 事务内：查重 + 写（BEGIN IMMEDIATE 串行化写事务，同连接保证查重与写原子）。
+        new_items: list[dict] = []
+        inserted_ids: list[str] = []
+        if candidates:
+            async with transaction() as db:
+                placeholders = ",".join("?" for _ in candidates)
+                cur = await db.execute(
+                    f"SELECT news_id FROM news WHERE news_id IN ({placeholders})",
+                    [d["news_id"] for d in candidates],
+                )
+                rows = await cur.fetchall()
+                existing = {row["news_id"] for row in rows}
+                new_items = [d for d in candidates if d["news_id"] not in existing]
+                for item in new_items:
+                    extra_json = json.dumps(item.get("extra", {}), ensure_ascii=False)
+                    cur = await db.execute(
+                        """
+                        INSERT OR IGNORE INTO news
+                            (news_id, title, summary, content, source, url, published_at, extra)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        RETURNING news_id
+                        """,
+                        (
+                            item["news_id"],
+                            item["title"],
+                            item.get("summary", ""),
+                            item.get("content", ""),
+                            item.get("source", ""),
+                            item.get("url", ""),
+                            item.get("published_at", ""),
+                            extra_json,
+                        ),
+                    )
+                    for row in await cur.fetchall():
+                        inserted_ids.append(row["news_id"])
+        # 事务后锁外：只回填真正落库的条目（INSERT OR IGNORE 被忽略的不 RETURNING）。
+        if inserted_ids:
+            inserted_set = set(inserted_ids)
+            deps.news_store.extend([d for d in new_items if d["news_id"] in inserted_set])
+        return json.dumps({"source": source, "total": len(items), "new": len(inserted_ids)}, ensure_ascii=False)
 
     @tool
     async def get_trends(top_n: int = 10) -> str:
@@ -474,10 +526,10 @@ def _create_tools(current_news_id: str | None, selected_news_ids: list[str]):
         article = await deps.interpreter.generate_article(items, resolved_style, title, prompt=prompt)
         article["article_id"] = f"art_{uuid4().hex[:12]}"
 
-        async with deps.article_lock:
-            # 先落库（DB 事实来源），再回填缓存（append 即同步缓存）。
-            await save_article(article)
-            deps.article_store.append(article)
+        # save_article 是 INSERT OR REPLACE，article_id 为 uuid4 无冲突，无需锁。
+        # 先落库（DB 事实来源），再回填缓存（append 即同步缓存）。
+        await save_article(article)
+        deps.article_store.append(article)
 
         return json.dumps(
             {
@@ -930,31 +982,51 @@ async def execute_action(req: ExecuteRequest):
     action = req.action
 
     if action == "refresh_news":
-        async with deps.news_lock:
-            results = {}
-            all_raw: list = []
-            try:
-                newsnow_results = await deps.newsnow_batch.crawl_all()
-                for platform_id, items in newsnow_results.items():
-                    all_raw.extend(items)
-                    results[f"newsnow_{platform_id}"] = {"status": "ok", "count": len(items)}
-            except Exception as e:
-                results["newsnow"] = {"status": "error", "error": str(e)}
-            try:
-                rss_results = await deps.rss_batch.crawl_all()
-                for feed_id, items in rss_results.items():
-                    all_raw.extend(items)
-                    results[f"rss_{feed_id}"] = {"status": "ok", "count": len(items)}
-            except Exception as e:
-                results["rss"] = {"status": "error", "error": str(e)}
-            filtered = deps.kw_filter.filter_newsitems(all_raw)
-            new_items = [item.to_dict() for item in filtered]
-            # 语义：refresh_news 是"重新刷新全部"，先清空 DB（事实来源）再 insert 新的。
-            # 先落库，再失效缓存并回填。
-            await delete_all_news()
-            await upsert_news(new_items)
-            deps.invalidate_news()
-            deps.news_store.extend(new_items)
+        # 爬取在临界区外（网络 IO 不需要串行化）。
+        results = {}
+        all_raw: list = []
+        try:
+            newsnow_results = await deps.newsnow_batch.crawl_all()
+            for platform_id, items in newsnow_results.items():
+                all_raw.extend(items)
+                results[f"newsnow_{platform_id}"] = {"status": "ok", "count": len(items)}
+        except Exception as e:
+            results["newsnow"] = {"status": "error", "error": str(e)}
+        try:
+            rss_results = await deps.rss_batch.crawl_all()
+            for feed_id, items in rss_results.items():
+                all_raw.extend(items)
+                results[f"rss_{feed_id}"] = {"status": "ok", "count": len(items)}
+        except Exception as e:
+            results["rss"] = {"status": "error", "error": str(e)}
+        # 事务外：过滤
+        filtered = deps.kw_filter.filter_newsitems(all_raw)
+        new_items = [item.to_dict() for item in filtered]
+        # 事务内：delete + insert 原子（BEGIN IMMEDIATE 串行化写事务，避免清空与
+        # 重灌之间被并发刷新插入残留）。INSERT OR IGNORE SQL 同 upsert_news。
+        async with transaction() as db:
+            await db.execute("DELETE FROM news")
+            for item in new_items:
+                extra_json = json.dumps(item.get("extra", {}), ensure_ascii=False)
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO news
+                        (news_id, title, summary, content, source, url, published_at, extra)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item["news_id"],
+                        item["title"],
+                        item.get("summary", ""),
+                        item.get("content", ""),
+                        item.get("source", ""),
+                        item.get("url", ""),
+                        item.get("published_at", ""),
+                        extra_json,
+                    ),
+                )
+        # 事务后锁外：原子替换缓存（delete+insert 已提交，缓存与 DB 对齐）。
+        deps.news_store[:] = new_items
         return {"success": True, "action": action, "total_news": len(new_items), "results": results}
 
     elif action == "refresh_source":
@@ -972,17 +1044,49 @@ async def execute_action(req: ExecuteRequest):
             items = await crawler.crawl()
         else:
             return {"success": False, "action": action, "error": f"Unknown source: {source}"}
-        async with deps.news_lock:
-            filtered = deps.kw_filter.filter_newsitems(items)
-            candidates = [item.to_dict() for item in filtered]
-            # DB 查重：拿已存在 news_id 集合，未存在的才新增。先落库再回填缓存。
-            existing = await news_id_exists_batch([d["news_id"] for d in candidates])
-            new_items = [d for d in candidates if d["news_id"] not in existing]
-            new_count = len(new_items)
-            if new_items:
-                await upsert_news(new_items)
-                deps.news_store.extend(new_items)
-        return {"success": True, "action": action, "source": source, "total": len(items), "new": new_count}
+        # 事务外：过滤
+        filtered = deps.kw_filter.filter_newsitems(items)
+        candidates = [item.to_dict() for item in filtered]
+        # 事务内：查重 + 写（BEGIN IMMEDIATE 串行化写事务，同连接保证查重与写原子）。
+        new_items: list[dict] = []
+        inserted_ids: list[str] = []
+        if candidates:
+            async with transaction() as db:
+                placeholders = ",".join("?" for _ in candidates)
+                cur = await db.execute(
+                    f"SELECT news_id FROM news WHERE news_id IN ({placeholders})",
+                    [d["news_id"] for d in candidates],
+                )
+                rows = await cur.fetchall()
+                existing = {row["news_id"] for row in rows}
+                new_items = [d for d in candidates if d["news_id"] not in existing]
+                for item in new_items:
+                    extra_json = json.dumps(item.get("extra", {}), ensure_ascii=False)
+                    cur = await db.execute(
+                        """
+                        INSERT OR IGNORE INTO news
+                            (news_id, title, summary, content, source, url, published_at, extra)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        RETURNING news_id
+                        """,
+                        (
+                            item["news_id"],
+                            item["title"],
+                            item.get("summary", ""),
+                            item.get("content", ""),
+                            item.get("source", ""),
+                            item.get("url", ""),
+                            item.get("published_at", ""),
+                            extra_json,
+                        ),
+                    )
+                    for row in await cur.fetchall():
+                        inserted_ids.append(row["news_id"])
+        # 事务后锁外：只回填真正落库的条目（INSERT OR IGNORE 被忽略的不 RETURNING）。
+        if inserted_ids:
+            inserted_set = set(inserted_ids)
+            deps.news_store.extend([d for d in new_items if d["news_id"] in inserted_set])
+        return {"success": True, "action": action, "source": source, "total": len(items), "new": len(inserted_ids)}
 
     else:
         return {"success": False, "action": action, "error": f"Unknown action: {action}"}

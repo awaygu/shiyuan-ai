@@ -13,6 +13,7 @@ from config import SCHEDULE_ENABLED, SCHEDULE_MIN_INTERVAL
 from database import news_id_exists_batch, upsert_news
 
 from . import deps
+from . import schedule_state as _sch
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/schedule", tags=["schedule"])
@@ -94,13 +95,16 @@ async def get_schedule_status():
 
 @router.post("/toggle")
 async def toggle_schedule(req: ToggleScheduleRequest):
+    # 直接写源模块 schedule_state，与 app.py lifespan 一致：写 deps 只会
+    # shadow 在 deps.__dict__，不回写源模块，会导致 toggle→lifespan 跨路径
+    # 防重复失效。读取仍走 deps.schedule_running（__getattr__ 转发到源模块）。
     if req.enabled and not deps.schedule_running:
-        deps.schedule_running = True
+        _sch.schedule_running = True
         asyncio.create_task(_newsnow_crawl_loop())
         asyncio.create_task(_rss_crawl_loop())
         logger.info("Schedule started by API")
     elif not req.enabled and deps.schedule_running:
-        deps.schedule_running = False
+        _sch.schedule_running = False
         logger.info("Schedule stopped by API")
     return {
         "running": deps.schedule_running,
