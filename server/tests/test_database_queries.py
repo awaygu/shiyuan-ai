@@ -68,9 +68,7 @@ async def test_get_news_batch_returns_only_existing_ordered_by_published_at_desc
 
 
 async def test_list_news_no_source_filters_and_paginates():
-    items = [
-        _news(f"n{i}", published_at=f"2024-01-{i:02d}T00:00:00") for i in range(1, 6)
-    ]
+    items = [_news(f"n{i}", published_at=f"2024-01-{i:02d}T00:00:00") for i in range(1, 6)]
     await db.upsert_news(items)
     page, total = await db.list_news(source=None, offset=0, limit=2)
     assert total == 5
@@ -158,7 +156,7 @@ async def test_list_publish_log_paginates_desc_by_id():
                 "platform": "xiaohongshu",
                 "success": True,
                 "url": "",
-                "timestamp": f"2024-01-0{i+1}T00:00:00",
+                "timestamp": f"2024-01-0{i + 1}T00:00:00",
                 "extra": {},
             }
         )

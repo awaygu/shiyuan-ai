@@ -385,9 +385,11 @@ async def test_full_refresh_delete_insert_atomic_no_empty_window():
     await db.upsert_news([_news("old1"), _news("old2")])
     assert (await db.list_news())[1] == 2
 
-    new_items = [_news("new1", published_at="2025-01-01T00:00:00"),
-                 _news("new2", published_at="2025-02-01T00:00:00"),
-                 _news("new3", published_at="2025-03-01T00:00:00")]
+    new_items = [
+        _news("new1", published_at="2025-01-01T00:00:00"),
+        _news("new2", published_at="2025-02-01T00:00:00"),
+        _news("new3", published_at="2025-03-01T00:00:00"),
+    ]
 
     # 事务未提交前：读连接仍能看到旧数据（DELETE 尚未提交，WAL 快照隔离）
     async with db.transaction() as conn:
@@ -401,8 +403,16 @@ async def test_full_refresh_delete_insert_atomic_no_empty_window():
                 "INSERT OR IGNORE INTO news "
                 "(news_id, title, summary, content, source, url, published_at, extra) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (item["news_id"], item["title"], item["summary"], item["content"],
-                 item["source"], item["url"], item["published_at"], "{}"),
+                (
+                    item["news_id"],
+                    item["title"],
+                    item["summary"],
+                    item["content"],
+                    item["source"],
+                    item["url"],
+                    item["published_at"],
+                    "{}",
+                ),
             )
         # 事务内仍未提交：读连接看到的还是旧数据
         _, total_mid = await db.list_news()
@@ -446,8 +456,16 @@ async def test_full_refresh_concurrent_reader_never_sees_empty():
                     "INSERT OR IGNORE INTO news "
                     "(news_id, title, summary, content, source, url, published_at, extra) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (item["news_id"], item["title"], item["summary"], item["content"],
-                     item["source"], item["url"], item["published_at"], "{}"),
+                    (
+                        item["news_id"],
+                        item["title"],
+                        item["summary"],
+                        item["content"],
+                        item["source"],
+                        item["url"],
+                        item["published_at"],
+                        "{}",
+                    ),
                 )
 
     reader_task = asyncio.create_task(_reader())

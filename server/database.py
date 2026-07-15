@@ -365,9 +365,7 @@ async def get_news_batch(news_ids: list[str]) -> list[dict[str, Any]]:
     return [_row_to_news(row) for row in rows]
 
 
-async def list_news(
-    source: str | None = None, offset: int = 0, limit: int = 20
-) -> tuple[list[dict[str, Any]], int]:
+async def list_news(source: str | None = None, offset: int = 0, limit: int = 20) -> tuple[list[dict[str, Any]], int]:
     """分页列表 + total。source 为 None 查全部；ORDER BY published_at DESC。
 
     COUNT + 分页两次 SELECT 在一次读连接借用内复用同一连接（同一快照）。

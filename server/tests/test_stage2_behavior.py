@@ -213,8 +213,7 @@ async def test_list_articles_orders_by_created_at_desc():
     conn = await db.get_db()
     for i, ts in enumerate(["2024-01-01 00:00:00", "2024-06-01 00:00:00", "2024-12-01 00:00:00"]):
         await conn.execute(
-            "INSERT INTO articles (article_id, title, content, style, news_ids, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO articles (article_id, title, content, style, news_ids, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (f"art_{i}", f"t{i}", "c", "s", "[]", ts),
         )
     await conn.commit()
@@ -263,9 +262,7 @@ async def test_invalidate_news_then_find_news_refetches_from_db():
 
 async def test_invalidate_articles_then_find_article_refetches():
     """invalidate_articles 后 find_article 回源 DB。"""
-    await db.save_article(
-        {"article_id": "art_1", "title": "t", "content": "c", "style": "s", "news_ids": ["n1"]}
-    )
+    await db.save_article({"article_id": "art_1", "title": "t", "content": "c", "style": "s", "news_ids": ["n1"]})
     cached = await stores.find_article("art_1")
     assert cached is not None
     cached["title"] = "dirty"

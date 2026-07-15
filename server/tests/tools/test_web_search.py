@@ -139,10 +139,7 @@ async def test_web_search_structured_kimi_parses_text(monkeypatch):
     """kimi 引擎：调 web_search_kimi 再 _parse_kimi_structured。"""
     monkeypatch.setattr("config.WEB_SEARCH_ENGINE", "kimi")
 
-    kimi_text = (
-        "### 1. 标题A\n来源: https://k.com/1\n内容A。\n\n"
-        "### 2. 标题B\n来源: https://k.com/2\n内容B。"
-    )
+    kimi_text = "### 1. 标题A\n来源: https://k.com/1\n内容A。\n\n### 2. 标题B\n来源: https://k.com/2\n内容B。"
 
     class _FakeKimiTool:
         async def ainvoke(self, args):  # noqa: ARG002

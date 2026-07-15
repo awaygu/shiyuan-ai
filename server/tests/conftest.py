@@ -94,6 +94,7 @@ async def client(monkeypatch, tmp_path) -> TestClient:
         # lifespan 已跑完，此时 checkpointer.DB_PATH 被 init_memory_db 设回 session 级
         # 共享路径。重置为每测试独立 tmp_path 并重新建表，隔离 checkpointer 数据。
         import core.checkpointer as _checkpointer
+
         _checkpointer.DB_PATH = str(tmp_path / "agent_memory.db")
         _checkpointer.init_db(_checkpointer.DB_PATH)
         yield test_client

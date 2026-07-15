@@ -95,9 +95,7 @@ async def test_find_news_batch_empty_returns_empty():
 
 
 async def test_find_article_miss_queries_db_and_backfills():
-    await db.save_article(
-        {"article_id": "art_1", "title": "t", "content": "c", "style": "s", "news_ids": ["n1"]}
-    )
+    await db.save_article({"article_id": "art_1", "title": "t", "content": "c", "style": "s", "news_ids": ["n1"]})
     art = await stores.find_article("art_1")
     assert art is not None
     assert art["article_id"] == "art_1"

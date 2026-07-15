@@ -177,9 +177,7 @@ class MemorySettings(BaseSettings):
     SUMMARY_MODEL: str = Field("deepseek-v4-flash", alias="SUMMARY_MODEL")
     SUMMARY_TRIGGER_TOKENS: int = Field(80000, alias="SUMMARY_TRIGGER_TOKENS")
     SUMMARY_KEEP_MESSAGES: int = Field(10, alias="SUMMARY_KEEP_MESSAGES")
-    KB_RAG_SUMMARY_TRIGGER_TOKENS: int = Field(
-        50000, alias="KB_RAG_SUMMARY_TRIGGER_TOKENS"
-    )
+    KB_RAG_SUMMARY_TRIGGER_TOKENS: int = Field(50000, alias="KB_RAG_SUMMARY_TRIGGER_TOKENS")
     KB_RAG_SUMMARY_KEEP_MESSAGES: int = Field(8, alias="KB_RAG_SUMMARY_KEEP_MESSAGES")
     KB_RAG_MEMORY_DB_PATH: str = Field(
         str(_SERVER_DIR / "data" / "rag_memory.db"),

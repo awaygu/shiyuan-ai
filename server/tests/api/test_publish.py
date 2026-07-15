@@ -184,7 +184,7 @@ async def test_publish_log_pagination(client: TestClient):
                 "platform": "xiaohongshu",
                 "success": True,
                 "url": "",
-                "timestamp": f"2024-01-0{i+1}T00:00:00",
+                "timestamp": f"2024-01-0{i + 1}T00:00:00",
                 "extra": {},
             }
         )
@@ -359,4 +359,3 @@ async def test_safe_run_publish_task_swallows_init_exception_and_marks_failed(mo
     assert any(c[0] == "tboom" and c[1] == "failed" and "boom" in (c[3] or "") for c in captured)
     assert mgr.tasks["tboom"].status == "failed"
     assert "boom" in (mgr.tasks["tboom"].error or "")
-

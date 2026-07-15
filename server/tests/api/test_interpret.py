@@ -242,9 +242,7 @@ async def test_generate_article_stream_emits_meta_and_done(client: TestClient):
 
 async def test_generate_article_stream_all_limited_emits_limited(client: TestClient):
     await db.upsert_news([_news("n1", content="[全文需在浏览器中查看]\n标题")])
-    with client.stream(
-        "POST", "/api/generate_article/stream", json={"news_ids": ["n1"], "style": "wechat_mp"}
-    ) as resp:
+    with client.stream("POST", "/api/generate_article/stream", json={"news_ids": ["n1"], "style": "wechat_mp"}) as resp:
         assert resp.status_code == 200
         body = b"".join(resp.iter_bytes()).decode("utf-8")
     assert "limited" in body

@@ -81,9 +81,7 @@ async def run_migrations(get_db) -> None:
     await _ensure_schema_version_table(db)
     applied = await _applied_versions(db)
 
-    migration_files = sorted(
-        p for p in _MIGRATIONS_DIR.iterdir() if p.is_file() and _MIGRATION_RE.match(p.name)
-    )
+    migration_files = sorted(p for p in _MIGRATIONS_DIR.iterdir() if p.is_file() and _MIGRATION_RE.match(p.name))
 
     pending = [p for p in migration_files if p.stem not in applied]
 

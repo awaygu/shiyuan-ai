@@ -70,7 +70,13 @@ def test_trends_with_news(client: TestClient, monkeypatch):
     _populate_news_store(
         monkeypatch,
         [
-            {"news_id": "n1", "title": "人工智能芯片突破", "summary": "半导体产业增长", "source": "cls-hot", "url": "u1"},
+            {
+                "news_id": "n1",
+                "title": "人工智能芯片突破",
+                "summary": "半导体产业增长",
+                "source": "cls-hot",
+                "url": "u1",
+            },
             {"news_id": "n2", "title": "人工智能应用落地", "summary": "ai 技术发展", "source": "rss-x", "url": "u2"},
         ],
     )
@@ -168,6 +174,7 @@ def test_compare_with_sources_filter(client: TestClient, monkeypatch):
         async def ainvoke(self, messages):
             class _R:
                 content = "对比分析结果"
+
             return _R()
 
     class _FakeInterpreter:
@@ -202,7 +209,18 @@ def test_execute_refresh_news_mocked(client: TestClient, monkeypatch):
     monkeypatch.setattr(crawlers.rss_batch, "crawl_all", _empty)
     # 预置一条旧新闻，验证 refresh 清空语义
     deps.news_store.clear()
-    deps.news_store.append({"news_id": "old", "title": "t", "summary": "s", "source": "cls-hot", "url": "u", "content": "", "published_at": "2024-01-01", "extra": {}})
+    deps.news_store.append(
+        {
+            "news_id": "old",
+            "title": "t",
+            "summary": "s",
+            "source": "cls-hot",
+            "url": "u",
+            "content": "",
+            "published_at": "2024-01-01",
+            "extra": {},
+        }
+    )
 
     resp = client.post("/api/agent/execute", json={"action": "refresh_news"})
     assert resp.status_code == 200
@@ -288,7 +306,9 @@ async def test_tool_get_trends_with_news():
 
 async def test_tool_search_news_no_match():
     stores.news_store.clear()
-    stores.news_store.extend([{"news_id": "n1", "title": "无关", "summary": "", "content": "", "source": "s", "url": "u"}])
+    stores.news_store.extend(
+        [{"news_id": "n1", "title": "无关", "summary": "", "content": "", "source": "s", "url": "u"}]
+    )
     tools = _make_tools()
     result = await tools["search_news"].ainvoke({"keyword": "不存在"})
     assert "未找到" in result
@@ -344,7 +364,18 @@ async def test_tool_get_news_content_with_id(client, monkeypatch):
 
     monkeypatch.setattr(deps, "ensure_content", _noop)
     await db.upsert_news(
-        [{"news_id": "n1", "title": "标题", "summary": "摘要", "content": "正文", "source": "cls-hot", "url": "u", "published_at": "2024-01-01", "extra": {}}]
+        [
+            {
+                "news_id": "n1",
+                "title": "标题",
+                "summary": "摘要",
+                "content": "正文",
+                "source": "cls-hot",
+                "url": "u",
+                "published_at": "2024-01-01",
+                "extra": {},
+            }
+        ]
     )
     tools = _make_tools(current_news_id="n1")
     result = await tools["get_news_content"].ainvoke({})
@@ -405,7 +436,20 @@ async def test_tool_refresh_news_mocked(client, monkeypatch):
     monkeypatch.setattr(crawlers.newsnow_batch, "crawl_all", _empty)
     monkeypatch.setattr(crawlers.rss_batch, "crawl_all", _empty)
     # 预置旧数据
-    await db.upsert_news([{"news_id": "old", "title": "t", "summary": "s", "content": "", "source": "cls-hot", "url": "u", "published_at": "2024-01-01", "extra": {}}])
+    await db.upsert_news(
+        [
+            {
+                "news_id": "old",
+                "title": "t",
+                "summary": "s",
+                "content": "",
+                "source": "cls-hot",
+                "url": "u",
+                "published_at": "2024-01-01",
+                "extra": {},
+            }
+        ]
+    )
     stores.news_store.extend(await db.load_news())
 
     tools = _make_tools()

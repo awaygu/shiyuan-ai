@@ -58,7 +58,7 @@ def test_sse_error_basic():
     line = sse_error("处理失败")
     assert line.endswith("\n\n")
     assert line.startswith("data: ")
-    payload = json.loads(line[len("data: "):].strip())
+    payload = json.loads(line[len("data: ") :].strip())
     assert payload["type"] == "error"
     assert payload["message"] == "处理失败"
     # 不传 code 时不带 code 字段（前端不读，仅扩展用）
@@ -67,7 +67,7 @@ def test_sse_error_basic():
 
 def test_sse_error_with_code():
     line = sse_error("Embedding failed", code=500)
-    payload = json.loads(line[len("data: "):].strip())
+    payload = json.loads(line[len("data: ") :].strip())
     assert payload["type"] == "error"
     assert payload["message"] == "Embedding failed"
     assert payload["code"] == 500
@@ -105,7 +105,18 @@ async def test_http_exception_400_envelope(client: TestClient):
     用 interpret 路由的 generate_article（invalid style 抛 400）验证。
     """
     await db.upsert_news(
-        [{"news_id": "n1", "title": "标题", "summary": "摘要", "content": "正文", "source": "cls-hot", "url": "u", "published_at": "2024-01-01", "extra": {}}]
+        [
+            {
+                "news_id": "n1",
+                "title": "标题",
+                "summary": "摘要",
+                "content": "正文",
+                "source": "cls-hot",
+                "url": "u",
+                "published_at": "2024-01-01",
+                "extra": {},
+            }
+        ]
     )
     resp = client.post("/api/generate_article", json={"news_ids": ["n1"], "style": "bogus"})
     assert resp.status_code == 400
