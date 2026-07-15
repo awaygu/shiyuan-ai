@@ -245,7 +245,7 @@
 
 <script setup lang="ts">
 import { UploadFilled, Loading, FolderOpened, Delete, Edit, Search } from '@element-plus/icons-vue'
-import { useNewsStore } from '@/stores'
+import { useKbStore } from '@/stores'
 import { ElMessage, ElMessageBox, ElInput } from 'element-plus'
 import { ref, nextTick } from 'vue'
 import type { KBDoc } from '@/types'
@@ -256,7 +256,7 @@ defineEmits<{ collapse: [] }>()
 
 import type { InputInstance } from 'element-plus'
 
-const store = useNewsStore()
+const store = useKbStore()
 
 const editingDocId = ref('')
 const editFilename = ref('')

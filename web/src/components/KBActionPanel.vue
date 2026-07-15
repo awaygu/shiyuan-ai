@@ -104,7 +104,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ArrowRight, ArrowLeft } from '@element-plus/icons-vue'
-import { useNewsStore } from '@/stores'
+import { useKbStore } from '@/stores'
 import type { StyleType } from '@/types'
 
 const props = withDefaults(
@@ -112,7 +112,7 @@ const props = withDefaults(
   { generating: false, collapsed: false }
 )
 
-const store = useNewsStore()
+const store = useKbStore()
 
 const noDocs = computed(() => store.kbDocuments.length === 0)
 

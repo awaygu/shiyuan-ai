@@ -77,13 +77,14 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useNewsStore } from '@/stores'
+import { useNewsStore, useArticleStore } from '@/stores'
 import { STYLE_LABELS } from '@/types'
 import type { StyleType } from '@/types'
 import { streamGenerateArticle } from '@/api'
 import { renderSafeMarkdown } from '@/utils/markdown'
 
 const store = useNewsStore()
+const articleStore = useArticleStore()
 const previewRef = ref<HTMLElement | null>(null)
 const generating = ref(false)
 const articleTitle = ref('')
@@ -171,7 +172,7 @@ function addToArticles() {
     style: store.currentStyle,
     news_ids: store.selectedNewsIds,
   }
-  store.articles.push(article)
+  articleStore.addArticle(article)
   ElMessage.success('已添加到文章列表')
 }
 </script>

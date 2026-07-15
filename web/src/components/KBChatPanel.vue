@@ -139,7 +139,7 @@
 import { ref, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
-import { useNewsStore } from '@/stores'
+import { useKbStore, useTaskStore } from '@/stores'
 import { kbStreamChat, fetchKBSuggestions, publishByContent } from '@/api'
 import type { KBSource, KBMessage } from '@/types'
 import type { ImagePublishOptions } from '@/composables/useWechatPublish'
@@ -149,7 +149,8 @@ import { renderSafeMarkdown } from '@/utils/markdown'
 
 const props = defineProps<{ kbId: string }>()
 const emit = defineEmits<{ 'clear-conv': []; 'generating-change': [value: boolean] }>()
-const store = useNewsStore()
+const store = useKbStore()
+const taskStore = useTaskStore()
 const { imageOptsVisible, imageOpts, needImageOptions, confirmPublish, cancelPublish } =
   useWechatPublish()
 
@@ -434,9 +435,7 @@ async function onPublish(content: string, platform: string, imageOptions?: Image
 
   try {
     const res = await publishByContent(title, content, platform, imageOptions)
-    store.startTaskStream()
-    store.showTaskPanel = true
-    await store.loadTasks()
+    await taskStore.notifyTaskStarted()
     ElMessage.success(`已提交发布到${label}，请在任务列表中查看进度`)
   } catch (e: any) {
     ElMessage.error(`发布失败：${e.message || '未知错误'}`)

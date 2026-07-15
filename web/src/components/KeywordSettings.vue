@@ -102,13 +102,13 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { Delete, Plus } from '@element-plus/icons-vue'
-import { useNewsStore } from '@/stores'
+import { useKeywordStore } from '@/stores'
 import { ElMessage } from 'element-plus'
 import type { KeywordGroup } from '@/api'
 
 const emit = defineEmits<{ close: [] }>()
 
-const store = useNewsStore()
+const store = useKeywordStore()
 
 const groups = ref<KeywordGroup[]>([])
 const expandedGroups = ref<Set<number>>(new Set())

@@ -61,9 +61,9 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useNewsStore } from '@/stores'
+import { useTaskStore } from '@/stores'
 
-const store = useNewsStore()
+const store = useTaskStore()
 defineEmits<{ close: []; 'clear-done': [] }>()
 
 const tasks = computed(() => store.tasks)
