@@ -139,12 +139,26 @@ async def lifespan(app: FastAPI):
             _sch.rss_interval,
         )
         from api.schedule import _newsnow_crawl_loop, _rss_crawl_loop
+        from api.tasks import task_manager
 
-        asyncio.create_task(_newsnow_crawl_loop())
-        asyncio.create_task(_rss_crawl_loop())
+        # 经 TaskManager 登记长跑循环句柄：register_background 内按 name 去重，
+        # shutdown 时可 cancel + await，避免后台循环在 close_db 后仍跑飞。
+        task_manager.register_background(
+            "newsnow_crawl_loop",
+            asyncio.create_task(_newsnow_crawl_loop()),
+        )
+        task_manager.register_background(
+            "rss_crawl_loop",
+            asyncio.create_task(_rss_crawl_loop()),
+        )
 
     yield
 
+    # 关闭：先停后台任务（置 schedule_running=False + cancel 循环 + await 全部
+    # 完成，含短期任务），再关 DB。避免后台 DB 写入途中被切断。
+    from api.tasks import task_manager
+
+    await task_manager.shutdown()
     await close_db()
 
 

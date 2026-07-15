@@ -38,41 +38,97 @@ def test_schedule_status_endpoint(client: TestClient):
 
 
 def test_schedule_toggle_start_and_stop(client: TestClient, monkeypatch):
-    """toggle 端点启动/停止调度；启动会 create_task 两个循环，需立即停止避免后台跑飞。"""
+    """toggle 端点启动/停止调度：启动经 TaskManager 登记两个循环句柄，停止
+    经 stop_background cancel 并 await 退出，避免后台跑飞。"""
     # 直接写源模块（与 app.py lifespan / toggle 端点一致），不要写 deps——
     # 写 deps 只会 shadow 在 deps.__dict__，toggle 端点写源模块后 deps 读取仍
     # 拿到 shadow 的旧值，导致跨路径不一致。
     schedule_state.schedule_running = False
 
-    # patch 循环协程为立即返回的空函数，避免真实 sleep
-    async def _noop_loop():
-        return None
+    # patch 循环协程为可被 cancel 的阻塞协程（sleep 期间被 cancel 能正常退出），
+    # 避免真实爬取。用 Event 持有循环使其不立即 done。
+    import asyncio
 
-    monkeypatch.setattr(schedule_mod, "_newsnow_crawl_loop", _noop_loop)
-    monkeypatch.setattr(schedule_mod, "_rss_crawl_loop", _noop_loop)
+    from api.tasks import task_manager
+
+    _stop_events: list[asyncio.Event] = []
+
+    async def _blocking_loop():
+        ev = asyncio.Event()
+        _stop_events.append(ev)
+        try:
+            await ev.wait()
+        except asyncio.CancelledError:
+            pass
+
+    monkeypatch.setattr(schedule_mod, "_newsnow_crawl_loop", _blocking_loop)
+    monkeypatch.setattr(schedule_mod, "_rss_crawl_loop", _blocking_loop)
 
     resp = client.post("/api/schedule/toggle", json={"enabled": True})
     assert resp.status_code == 200
     assert resp.json()["running"] is True
+    # 启动后两个循环应已登记
+    assert task_manager.is_running("newsnow_crawl_loop")
+    assert task_manager.is_running("rss_crawl_loop")
 
     resp2 = client.post("/api/schedule/toggle", json={"enabled": False})
     assert resp2.status_code == 200
     assert resp2.json()["running"] is False
+    # 停止后循环已 cancel 并退出，不再 running
+    assert not task_manager.is_running("newsnow_crawl_loop")
+    assert not task_manager.is_running("rss_crawl_loop")
 
 
-def test_schedule_toggle_idempotent_when_already_running(client: TestClient, monkeypatch):
-    """已 running 时再启用不应重复 create_task（无额外副作用）。"""
+async def test_schedule_toggle_idempotent_when_already_running(monkeypatch):
+    """防重复升级为"循环句柄存在性判断"：循环已在跑（已登记句柄）时再启用
+    不应重复派发新 task。
+
+    直接 await toggle_schedule 协程（不走 TestClient），可在同一事件循环里
+    预登记 task 并在结束后 await 清理。
+    """
+    import asyncio
+
+    from api.tasks import task_manager
+
     schedule_state.schedule_running = True
 
-    async def _noop_loop():
-        return None
+    # 预先登记在跑的循环句柄，模拟 lifespan 已启动的情况
+    async def _blocking_loop():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            pass
 
-    monkeypatch.setattr(schedule_mod, "_newsnow_crawl_loop", _noop_loop)
-    monkeypatch.setattr(schedule_mod, "_rss_crawl_loop", _noop_loop)
-    resp = client.post("/api/schedule/toggle", json={"enabled": True})
-    assert resp.status_code == 200
-    assert resp.json()["running"] is True
-    schedule_state.schedule_running = False  # 还原
+    pre_newsnow = asyncio.create_task(_blocking_loop())
+    pre_rss = asyncio.create_task(_blocking_loop())
+    task_manager.register_background("newsnow_crawl_loop", pre_newsnow)
+    task_manager.register_background("rss_crawl_loop", pre_rss)
+    assert task_manager.is_running("newsnow_crawl_loop")
+    assert task_manager.is_running("rss_crawl_loop")
+
+    # patch 循环协程：若被重复派发会创建新 task，记录调用次数
+    spawn_count = {"n": 0}
+
+    async def _counted_loop():
+        spawn_count["n"] += 1
+
+    monkeypatch.setattr(schedule_mod, "_newsnow_crawl_loop", _counted_loop)
+    monkeypatch.setattr(schedule_mod, "_rss_crawl_loop", _counted_loop)
+
+    req = schedule_mod.ToggleScheduleRequest(enabled=True)
+    resp = await schedule_mod.toggle_schedule(req)
+    assert resp["running"] is True
+    # 循环已在跑，toggle 不应重复派发
+    assert spawn_count["n"] == 0
+    assert task_manager.is_running("newsnow_crawl_loop")
+    assert task_manager.is_running("rss_crawl_loop")
+    # 预登记的句柄仍是原来的（未被替换）
+    assert task_manager._background_tasks["newsnow_crawl_loop"] is pre_newsnow
+
+    # 清理：cancel 预登记 task 并 await 退出
+    await task_manager.stop_background("newsnow_crawl_loop")
+    await task_manager.stop_background("rss_crawl_loop")
+    schedule_state.schedule_running = False
 
 
 def test_schedule_config_update_valid(client: TestClient):

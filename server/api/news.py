@@ -215,7 +215,11 @@ async def refresh_news_source(source: str):
     else:
         raise HTTPException(400, f"Unknown source: {source}")
 
-    asyncio.create_task(_bg_crawl_and_save(source, crawler))
+    from .tasks import task_manager
+
+    # 经 TaskManager 登记短期后台任务：shutdown 时 await + 异常可观测
+    # （done_callback 记录异常，原本被事件循环静默吞）。
+    task_manager.register_short(asyncio.create_task(_bg_crawl_and_save(source, crawler)))
     return {"source": source, "status": "refreshing"}
 
 
@@ -309,7 +313,10 @@ async def refresh_newsnow_platform(platform_id: str):
         raise HTTPException(400, f"Unknown platform: {platform_id}. Available: {list(deps.NEWSNOW_CRAWLERS.keys())}")
 
     crawler = deps.NEWSNOW_CRAWLERS[platform_id]
-    asyncio.create_task(_bg_crawl_and_save(platform_id, crawler))
+    from .tasks import task_manager
+
+    # 经 TaskManager 登记短期后台任务：shutdown 时 await + 异常可观测。
+    task_manager.register_short(asyncio.create_task(_bg_crawl_and_save(platform_id, crawler)))
     return {"platform": platform_id, "name": crawler.platform_name, "status": "refreshing"}
 
 

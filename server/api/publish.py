@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["publish"])
 
-_running_publish_tasks: set[asyncio.Task] = set()
 _publish_locks: dict[str, asyncio.Lock] = {}
 
 
@@ -81,19 +80,22 @@ async def publish_article(req: PublishRequest):
     clean_title = title[:40] if title else "文章"
     task = await task_manager.create_task("publish", req.platform, clean_title)
 
-    task_ref = asyncio.create_task(
-        _safe_run_publish_task(
-            task=task,
-            publisher=publisher,
-            title=title,
-            content=content,
-            article_id=req.article_id or "",
-            generate_cover=req.generate_cover,
-            generate_inline_images=req.generate_inline_images,
+    # 经 TaskManager 登记发布任务句柄：统一收口，shutdown 时可 await
+    # （_safe_run_publish_task 已捕获异常并标记失败，register_short 的
+    # done_callback 不会重复记录已处理的异常）。
+    task_manager.register_short(
+        asyncio.create_task(
+            _safe_run_publish_task(
+                task=task,
+                publisher=publisher,
+                title=title,
+                content=content,
+                article_id=req.article_id or "",
+                generate_cover=req.generate_cover,
+                generate_inline_images=req.generate_inline_images,
+            )
         )
     )
-    _running_publish_tasks.add(task_ref)
-    task_ref.add_done_callback(_running_publish_tasks.discard)
 
     return {"task_id": task.task_id, "status": "pending"}
 

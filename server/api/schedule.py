@@ -98,13 +98,30 @@ async def toggle_schedule(req: ToggleScheduleRequest):
     # 直接写源模块 schedule_state，与 app.py lifespan 一致：写 deps 只会
     # shadow 在 deps.__dict__，不回写源模块，会导致 toggle→lifespan 跨路径
     # 防重复失效。读取仍走 deps.schedule_running（__getattr__ 转发到源模块）。
-    if req.enabled and not deps.schedule_running:
+    from .tasks import task_manager
+
+    if (
+        req.enabled
+        and not task_manager.is_running("newsnow_crawl_loop")
+        and not task_manager.is_running("rss_crawl_loop")
+    ):
+        # 防重复升级为"循环句柄存在性判断"：已登记的循环不重复派发。
+        # 仍写 schedule_running=True 作为循环退出条件（while deps.schedule_running）。
         _sch.schedule_running = True
-        asyncio.create_task(_newsnow_crawl_loop())
-        asyncio.create_task(_rss_crawl_loop())
+        task_manager.register_background(
+            "newsnow_crawl_loop",
+            asyncio.create_task(_newsnow_crawl_loop()),
+        )
+        task_manager.register_background(
+            "rss_crawl_loop",
+            asyncio.create_task(_rss_crawl_loop()),
+        )
         logger.info("Schedule started by API")
     elif not req.enabled and deps.schedule_running:
+        # 禁用：置标志位 + cancel 两个循环并 await 退出。
         _sch.schedule_running = False
+        await task_manager.stop_background("newsnow_crawl_loop")
+        await task_manager.stop_background("rss_crawl_loop")
         logger.info("Schedule stopped by API")
     return {
         "running": deps.schedule_running,

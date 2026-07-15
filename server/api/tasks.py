@@ -52,15 +52,109 @@ class TaskManager:
     _instance: TaskManager | None = None
 
     def __init__(self):
+        # 发布任务元数据（面向用户的进度/SSE），不持有 asyncio.Task 句柄。
         self.tasks: dict[str, AsyncTask] = {}
         self._subscribers: list[asyncio.Queue] = []
         self._lock = asyncio.Lock()
+        # 长跑循环句柄：按 name 去重（如 "newsnow_crawl_loop"）。
+        # 用于 lifespan/toggle 两条启动路径统一防重复派发，shutdown 时 cancel + await。
+        self._background_tasks: dict[str, asyncio.Task] = {}
+        # 短期后台任务句柄（手动爬取 _bg_crawl_and_save、发布任务等）：
+        # 主要是为了 shutdown 时能 await + 异常可观测。done 后自动从集合移除。
+        self._short_tasks: set[asyncio.Task] = set()
 
     @classmethod
     def get(cls) -> TaskManager:
         if cls._instance is None:
             cls._instance = TaskManager()
         return cls._instance
+
+    # ── 长跑循环管理 ──────────────────────────────────────────────────
+
+    def register_background(self, name: str, task: asyncio.Task) -> bool:
+        """登记长跑循环句柄，按 name 去重。
+
+        返回 True 表示已登记新循环；False 表示同名循环已在跑，新 task 被
+        取消（避免重复派发）。供 lifespan/toggle 统一防重复。
+        """
+        existing = self._background_tasks.get(name)
+        if existing is not None and not existing.done():
+            # 同名循环仍在跑：取消新派发的 task，保留已在跑的。
+            task.cancel()
+            logger.warning("[TaskManager] %s 已在运行，取消重复派发的 task", name)
+            return False
+        self._background_tasks[name] = task
+        task.add_done_callback(lambda t, n=name: self._background_tasks.pop(n, None))
+        return True
+
+    def is_running(self, name: str) -> bool:
+        """查某长跑循环是否在跑（句柄存在且未完成）。"""
+        task = self._background_tasks.get(name)
+        return task is not None and not task.done()
+
+    async def stop_background(self, name: str) -> None:
+        """cancel 指定长跑循环并 await 其退出。"""
+        task = self._background_tasks.pop(name, None)
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:  # noqa: BLE001 - 退出时记录异常即可
+            logger.error("[TaskManager] %s 退出时异常: %s", name, e)
+
+    # ── 短期后台任务管理 ──────────────────────────────────────────────
+
+    def register_short(self, task: asyncio.Task) -> None:
+        """登记短期后台 task 句柄（手动爬取/发布等）。
+
+        done 后自动从集合移除；若 task 因异常结束则记录日志（当前异常会被
+        事件循环静默吞，这里补可观测性）。
+        """
+
+        def _on_done(t: asyncio.Task) -> None:
+            self._short_tasks.discard(t)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.error("[TaskManager] 短期后台任务异常: %s", exc, exc_info=exc)
+
+        self._short_tasks.add(task)
+        task.add_done_callback(_on_done)
+
+    # ── 统一关闭 ──────────────────────────────────────────────────────
+
+    async def shutdown(self) -> None:
+        """关闭所有后台任务：置 schedule_running=False + cancel 长跑循环 +
+        await 全部完成（含短期任务）。
+
+        lifespan shutdown 在 close_db 前调用，避免后台 DB 写入被切断。
+        """
+        # 先置标志位，让 while deps.schedule_running 循环自然退出。
+        try:
+            from . import schedule_state as _sch
+
+            _sch.schedule_running = False
+        except Exception:  # noqa: BLE001
+            logger.debug("[TaskManager] shutdown 置 schedule_running=False 失败", exc_info=True)
+
+        # cancel 并 await 长跑循环
+        bg_tasks = list(self._background_tasks.values())
+        for task in bg_tasks:
+            if not task.done():
+                task.cancel()
+        if bg_tasks:
+            await asyncio.gather(*bg_tasks, return_exceptions=True)
+        self._background_tasks.clear()
+
+        # await 短期任务（不 cancel，让其自然完成；DB 写入途中不应被中断）
+        short_tasks = list(self._short_tasks)
+        if short_tasks:
+            await asyncio.gather(*short_tasks, return_exceptions=True)
+        self._short_tasks.clear()
 
     async def create_task(
         self,

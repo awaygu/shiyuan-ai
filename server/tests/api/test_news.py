@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from fastapi.testclient import TestClient
 
 from sources.base import NewsItem
@@ -143,3 +146,78 @@ def test_trends_reads_cache_after_refresh(client: TestClient, monkeypatch) -> No
     assert post.status_code == 200
     assert post.json()["total_news"] == 1
 
+
+def test_refresh_news_source_registers_short_task(client: TestClient, monkeypatch):
+    """POST /api/news/refresh/{source} 应经 task_manager.register_short 登记后台 task。"""
+    from api import deps
+    from api.tasks import task_manager
+
+    task_manager._short_tasks.clear()
+    captured: list = []
+    _orig_register = task_manager.register_short
+
+    def _spy_register_short(t):
+        captured.append(t)
+        _orig_register(t)
+
+    monkeypatch.setattr(task_manager, "register_short", _spy_register_short)
+
+    # mock 单个爬虫的 crawl 返回空，避免真实网络（15s 超时）
+    async def _empty_crawl():
+        return []
+
+    crawler = deps.NEWSNOW_CRAWLERS["cls-hot"]
+    monkeypatch.setattr(crawler, "crawl", _empty_crawl)
+
+    resp = client.post("/api/news/refresh/cls-hot")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "refreshing"
+    assert len(captured) == 1
+    # task 是 _bg_crawl_and_save，内部吞掉爬取异常并 return，会很快完成。
+    # TestClient 退出上下文时会清理；这里不强等。
+
+
+def test_refresh_newsnow_platform_registers_short_task(client: TestClient, monkeypatch):
+    """POST /api/newsnow/refresh/{platform_id} 应经 task_manager.register_short 登记。"""
+    from api import deps
+    from api.tasks import task_manager
+
+    task_manager._short_tasks.clear()
+    captured: list = []
+    _orig_register = task_manager.register_short
+    monkeypatch.setattr(task_manager, "register_short", lambda t: (captured.append(t), _orig_register(t)))
+
+    async def _empty_crawl():
+        return []
+
+    crawler = deps.NEWSNOW_CRAWLERS["cls-hot"]
+    monkeypatch.setattr(crawler, "crawl", _empty_crawl)
+
+    resp = client.post("/api/newsnow/refresh/cls-hot")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "refreshing"
+    assert len(captured) == 1
+
+
+async def test_bg_crawl_and_save_unhandled_exception_logged(monkeypatch, caplog):
+    """register_short 登记的 task 若抛出未捕获异常，done_callback 应 logger.error
+    记录（异常可观测）。
+
+    _bg_crawl_and_save 内部 try/except 只包住 crawl()；事务/回填阶段抛出的异常
+    会冒泡到 task 层面，由 register_short 的 done_callback 记录。这里直接构造一个
+    必然抛错的 task 验证记录链路。
+    """
+    from api.tasks import task_manager
+
+    task_manager._short_tasks.clear()
+
+    async def _raise():
+        raise RuntimeError("unhandled in bg")
+
+    task = asyncio.create_task(_raise())
+    task_manager.register_short(task)
+    with caplog.at_level(logging.ERROR):
+        await asyncio.gather(task, return_exceptions=True)
+    # 让 done_callback 有机会执行
+    await asyncio.sleep(0)
+    assert any("短期后台任务异常" in r.getMessage() and r.levelno == logging.ERROR for r in caplog.records)
