@@ -152,9 +152,17 @@ def _cleanup_checkpointer(conv_id: str):
         conn.execute("DELETE FROM checkpoint_writes WHERE thread_id = ?", (conv_id,))
         conn.commit()
         conn.close()
-    except Exception:
-        # checkpoint 表可能不存在（首次使用时），忽略错误
-        pass
+    except sqlite3.OperationalError as e:
+        # checkpoint 表不存在（首次使用时 SqliteSaver 尚未建表）属预期情况，
+        # 精确捕获 OperationalError 并按"no such table"降级为 debug，避免噪音；
+        # 其余 OperationalError 仍记录以暴露真实问题。
+        if "no such table" in str(e):
+            logger.debug("Checkpoint table not ready yet, skip cleanup: %s", e)
+        else:
+            logger.warning("Checkpoint cleanup failed: %s", e)
+    except Exception as e:
+        # 其他未预期异常不再静默吞，记录日志便于排查。
+        logger.warning("Checkpoint cleanup failed: %s", e)
 
 
 def update_conversation_title(conv_id: str, title: str) -> bool:

@@ -21,6 +21,7 @@ from database import save_article, transaction
 
 from . import deps
 from .interpret import LIMITED_CONTENT_MSG
+from .sse import sse_error
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -755,29 +756,35 @@ async def briefing_stream():
     interpreter = NewsInterpreter(mock=False)
 
     async def event_stream():
-        meta = json.dumps(
-            {
-                "type": "meta",
-                "total_news": len(deps.news_store),
-                "sources": len(by_source),
-            },
-            ensure_ascii=False,
-        )
-        yield f"data: {meta}\n\n"
+        try:
+            meta = json.dumps(
+                {
+                    "type": "meta",
+                    "total_news": len(deps.news_store),
+                    "sources": len(by_source),
+                },
+                ensure_ascii=False,
+            )
+            yield f"data: {meta}\n\n"
 
-        yield f"data: {json.dumps({'type': 'loading', 'message': '正在生成今日简报...'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'loading', 'message': '正在生成今日简报...'}, ensure_ascii=False)}\n\n"
 
-        from langchain_core.messages import HumanMessage, SystemMessage
+            from langchain_core.messages import HumanMessage, SystemMessage
 
-        messages = [
-            SystemMessage(content=prompt_manager.get_system_prompt("interpret")),
-            HumanMessage(content=prompt_text),
-        ]
+            messages = [
+                SystemMessage(content=prompt_manager.get_system_prompt("interpret")),
+                HumanMessage(content=prompt_text),
+            ]
 
-        async for chunk in interpreter.llm.astream(messages):
-            if chunk.content:
-                data = json.dumps({"type": "chunk", "content": chunk.content}, ensure_ascii=False)
-                yield f"data: {data}\n\n"
+            async for chunk in interpreter.llm.astream(messages):
+                if chunk.content:
+                    data = json.dumps({"type": "chunk", "content": chunk.content}, ensure_ascii=False)
+                    yield f"data: {data}\n\n"
+        except Exception as e:
+            # briefing 流全程无 try/except，LLM 流式异常会以连接中断暴露给前端。
+            # 统一发 SSE error 事件（前端 onError 读 message），随后照常发 [DONE] 结束。
+            logger.exception("Briefing stream failed: %s", e)
+            yield sse_error(f"生成简报失败：{e}")
 
         yield "data: [DONE]\n\n"
 
@@ -953,7 +960,7 @@ async def agent_chat_stream(req: AgentChatRequest):
         except Exception as e:
             logger.exception("Agent stream failed: %s", e)
             error_msg = f"处理失败：{e}"
-            yield f"data: {json.dumps({'type': 'error', 'message': error_msg}, ensure_ascii=False)}\n\n"
+            yield sse_error(error_msg)
             # 保存错误信息到数据库
             await asyncio.to_thread(add_message, conv_id, role="assistant", content=error_msg)
 

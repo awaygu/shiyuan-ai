@@ -199,7 +199,10 @@ def _extract_meta_description(soup) -> str:
                         if val and len(str(val)) > 30:
                             parts.append(str(val).strip())
                             break
-        except Exception:
+        except Exception as e:
+            # ld+json 结构各异，解析失败逐条跳过属正常；记 debug 避免噪音，
+            # 保留可排查性（正文分节提取为尽力而为，不影响主流程）。
+            logger.debug("Failed to parse ld+json block: %s", e)
             continue
 
     return "\n\n".join(parts)[:5000] if parts else ""

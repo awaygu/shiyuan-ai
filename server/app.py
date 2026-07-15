@@ -19,6 +19,7 @@ from api.deps import (
     newsnow_batch,
     rss_batch,
 )
+from api.errors import register_exception_handlers
 from api.interpret import router as interpret_router
 from api.keywords import router as keywords_router
 from api.knowledge import router as knowledge_router
@@ -163,6 +164,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="识渊 - AI解读与知识库", version="1.0.0", lifespan=lifespan)
+
+# 全局 exception_handler：统一普通 JSON 端点的错误响应格式（envelope 保留
+# detail 兼容 + code/type 扩展）。必须在 middleware 前注册。注意：lifespan
+# 内异常与 SSE 端点内异常不走全局 handler，仅覆盖普通 JSON 端点。
+register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,

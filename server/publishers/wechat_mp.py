@@ -184,7 +184,10 @@ class WechatMpPublisher(BasePublisher):
             if e.errcode == WECHAT_IP_WHITELIST_ERROR:
                 logger.warning("WeChat IP not in whitelist: %s", e.errmsg)
             return False
-        except Exception:
+        except Exception as e:
+            # access_token 校验静默失败会掩盖配置错误（如网络/证书问题），
+            # 记日志便于排查，仍返回 False 让上层按"未登录"处理。
+            logger.warning("WeChat check_login failed: %s", e)
             return False
 
     async def do_login(self) -> bool:

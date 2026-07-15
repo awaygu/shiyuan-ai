@@ -54,6 +54,9 @@ from rag.embeddings import DashScopeEmbedding
 from rag.loader import DocumentLoader
 from rag.vectorstore import VectorStoreManager
 
+from .errors import not_found, server_error
+from .sse import sse_error
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -141,7 +144,7 @@ async def list_knowledge_bases():
 async def get_knowledge_base(kb_id: str):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
     docs = await load_kb_docs(kb_id)
     total_chunks = sum(d.get("chunk_count", 0) for d in docs)
     convs = await load_conversations(kb_id)
@@ -159,7 +162,7 @@ async def update_knowledge_base(kb_id: str, req: UpdateKBRequest):
         raise HTTPException(400, "At least one of name or description must be provided")
     kb = await db_update_kb(kb_id, name=req.name, description=req.description)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
     return kb
 
 
@@ -167,7 +170,7 @@ async def update_knowledge_base(kb_id: str, req: UpdateKBRequest):
 async def delete_knowledge_base(kb_id: str):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
 
     _ = await db_delete_kb(kb_id)
     vs_manager.remove(kb_id)
@@ -178,8 +181,9 @@ async def delete_knowledge_base(kb_id: str):
             f.unlink(missing_ok=True)
         try:
             kb_dir.rmdir()
-        except Exception:
-            pass
+        except Exception as e:
+            # 目录非空或被占用时删除失败：数据已清，残留空目录不影响功能，仅记日志。
+            logger.warning("Failed to rmdir KB dir %s: %s", kb_dir, e)
 
     return {"deleted": True, "kb_id": kb_id}
 
@@ -220,7 +224,7 @@ async def _ingest_text(
     try:
         vectors = await embedding_client.embed_async([c.text for c in chunks])
     except Exception as e:
-        raise HTTPException(500, f"Embedding failed: {e}")
+        server_error("Embedding failed", e)
 
     chunk_ids = [c.chunk_id for c in chunks]
     await vs_manager.add_async(kb_id, chunk_ids, vectors, doc_id)
@@ -288,7 +292,7 @@ async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
     except Exception as e:
         logger.error("Document parse failed: %s", e, exc_info=True)
         save_path.unlink(missing_ok=True)
-        raise HTTPException(500, f"Failed to parse document: {e}")
+        server_error("Failed to parse document", e)
 
     if not doc.text.strip():
         save_path.unlink(missing_ok=True)
@@ -315,7 +319,7 @@ async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
         vectors = await embedding_client.embed_async(texts)
     except Exception as e:
         save_path.unlink(missing_ok=True)
-        raise HTTPException(500, f"Embedding failed: {e}")
+        server_error("Embedding failed", e)
 
     chunk_ids = [c.chunk_id for c in chunks]
     await vs_manager.add_async(kb_id, chunk_ids, vectors, doc_id)
@@ -358,7 +362,7 @@ async def _process_single_upload(kb_id: str, file: UploadFile) -> dict:
 async def upload_documents(kb_id: str, files: list[UploadFile] = File(...)):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
 
     results = []
     errors = []
@@ -385,7 +389,7 @@ class KBWebSearchRequest(BaseModel):
 async def kb_web_search(kb_id: str, req: KBWebSearchRequest):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
     if not req.query.strip():
         raise HTTPException(400, "搜索词不能为空")
 
@@ -398,7 +402,7 @@ async def kb_web_search(kb_id: str, req: KBWebSearchRequest):
         results = await web_search_structured(req.query)
     except Exception as e:
         logger.exception("KB web-search failed: %s", e)
-        raise HTTPException(500, f"联网搜索失败：{e}")
+        server_error("联网搜索失败", e)
 
     return {"results": results}
 
@@ -418,7 +422,7 @@ class KBIngestTextRequest(BaseModel):
 async def kb_ingest_text(kb_id: str, req: KBIngestTextRequest):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
     if not req.items:
         raise HTTPException(400, "没有可入库的内容")
 
@@ -457,7 +461,7 @@ async def kb_ingest_text(kb_id: str, req: KBIngestTextRequest):
 async def list_documents(kb_id: str):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
     docs = await load_kb_docs(kb_id)
     total_chunks = sum(d.get("chunk_count", 0) for d in docs)
     return {"documents": docs, "total_chunks": total_chunks}
@@ -470,7 +474,7 @@ async def list_documents(kb_id: str):
 async def get_document(kb_id: str, doc_id: str):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
     docs = await load_kb_docs(kb_id)
     for d in docs:
         if d["doc_id"] == doc_id:
@@ -486,7 +490,7 @@ class RenameDocRequest(BaseModel):
 async def rename_document(kb_id: str, doc_id: str, req: RenameDocRequest):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
     if not req.filename.strip():
         raise HTTPException(400, "Filename cannot be empty")
     ok = await rename_kb_doc(doc_id, req.filename.strip())
@@ -499,7 +503,7 @@ async def rename_document(kb_id: str, doc_id: str, req: RenameDocRequest):
 async def delete_document(kb_id: str, doc_id: str):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
 
     deleted_chunk_ids = await delete_kb_doc(doc_id)
     if deleted_chunk_ids:
@@ -527,7 +531,7 @@ class KBSearchRequest(BaseModel):
 async def search_knowledge(kb_id: str, req: KBSearchRequest):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
 
     vector_store = vs_manager.get(kb_id)
     if vector_store.total_vectors == 0:
@@ -536,7 +540,7 @@ async def search_knowledge(kb_id: str, req: KBSearchRequest):
     try:
         query_vec = await embedding_client.embed_query_async(req.query)
     except Exception as e:
-        raise HTTPException(500, f"Embedding query failed: {e}")
+        server_error("Embedding query failed", e)
 
     hits = vector_store.search(query_vec, top_k=req.top_k, doc_ids=req.doc_ids or None)
     if not hits:
@@ -570,7 +574,7 @@ async def search_knowledge(kb_id: str, req: KBSearchRequest):
 async def get_suggestions(kb_id: str):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
 
     vector_store = vs_manager.get(kb_id)
     if vector_store.total_vectors == 0:
@@ -621,7 +625,7 @@ class CreateConvRequest(BaseModel):
 async def create_conv(kb_id: str, req: CreateConvRequest):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
     conv_id = uuid.uuid4().hex[:12]
     await create_conversation({"conv_id": conv_id, "kb_id": kb_id, "title": req.title})
     return {"conv_id": conv_id, "kb_id": kb_id, "title": req.title}
@@ -631,7 +635,7 @@ async def create_conv(kb_id: str, req: CreateConvRequest):
 async def list_conversations(kb_id: str):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
     convs = await load_conversations(kb_id)
     return {"conversations": convs}
 
@@ -649,7 +653,9 @@ async def get_messages(kb_id: str, conv_id: str):
         if m.get("sources"):
             try:
                 m["sources"] = json.loads(m["sources"])
-            except Exception:
+            except Exception as e:
+                # sources JSON 损坏时静默降级为空，避免整条消息渲染失败；记日志便于排查脏数据。
+                logger.warning("Failed to parse sources JSON for message: %s", e)
                 m["sources"] = []
         else:
             m["sources"] = []
@@ -710,7 +716,7 @@ async def _stream_kb_article(
 
     vector_store = vs_manager.get(kb_id)
     if vector_store.total_vectors == 0:
-        yield f"data: {json.dumps({'type': 'error', 'message': '知识库为空，请先上传文档'}, ensure_ascii=False)}\n\n"
+        yield sse_error("知识库为空，请先上传文档")
         return
 
     # 确保会话存在
@@ -774,7 +780,7 @@ async def _stream_kb_article(
     try:
         query_vec = await embedding_client.embed_query_async(retrieval_query)
     except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'message': f'Embedding failed: {e}'}, ensure_ascii=False)}\n\n"
+        yield sse_error(f"Embedding failed: {e}")
         return
 
     hits = vector_store.search(query_vec, top_k=top_k, doc_ids=doc_ids or None)
@@ -842,7 +848,7 @@ async def _stream_kb_article(
                 data = json.dumps({"type": "chunk", "content": chunk.content}, ensure_ascii=False)
                 yield f"data: {data}\n\n"
     except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        yield sse_error(str(e))
 
     if full_content:
         msg_id = uuid.uuid4().hex[:12]
@@ -879,7 +885,7 @@ def _kb_conv_id(kb_id: str) -> str:
 async def kb_chat_stream(kb_id: str, req: KBChatRequest):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
 
     vector_store = vs_manager.get(kb_id)
     if vector_store.total_vectors == 0:
@@ -1033,7 +1039,7 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
                 yield f"data: {json.dumps({'type': 'prompt', 'content': user_prompt}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+            yield sse_error(str(e))
 
         if full_content:
             asst_msg_id = uuid.uuid4().hex[:12]
@@ -1064,7 +1070,7 @@ async def kb_chat_stream(kb_id: str, req: KBChatRequest):
 async def clear_kb_chat(kb_id: str):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
 
     conv_id = _kb_conv_id(kb_id)
 
@@ -1084,7 +1090,7 @@ async def clear_kb_chat(kb_id: str):
 async def get_kb_chat_messages(kb_id: str):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
 
     conv_id = _kb_conv_id(kb_id)
     msgs = await load_messages(conv_id)
@@ -1092,7 +1098,9 @@ async def get_kb_chat_messages(kb_id: str):
         if m.get("sources"):
             try:
                 m["sources"] = json.loads(m["sources"])
-            except Exception:
+            except Exception as e:
+                # sources JSON 损坏时静默降级为空，避免整条消息渲染失败；记日志便于排查脏数据。
+                logger.warning("Failed to parse sources JSON for message: %s", e)
                 m["sources"] = []
         else:
             m["sources"] = []
@@ -1114,7 +1122,7 @@ class KBGenerateRequest(BaseModel):
 async def kb_generate_stream(kb_id: str, req: KBGenerateRequest):
     kb = await load_kb(kb_id)
     if not kb:
-        raise HTTPException(404, "Knowledge base not found")
+        not_found("Knowledge base not found")
 
     vector_store = vs_manager.get(kb_id)
     if vector_store.total_vectors == 0:
@@ -1153,7 +1161,9 @@ async def kb_search_internal(query: str, top_k: int = 5) -> str:
             continue
         try:
             query_vec = await embedding_client.embed_query_async(query)
-        except Exception:
+        except Exception as e:
+            # 嵌入失败跳过该知识库，避免拖垮整批检索；记日志便于定位嵌入服务问题。
+            logger.warning("Embedding query failed for KB %s during internal search: %s", kb["kb_id"], e)
             continue
         hits = vector_store.search(query_vec, top_k=top_k)
         if not hits:
