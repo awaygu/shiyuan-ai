@@ -129,6 +129,8 @@ class KnowledgeBaseSettings(BaseSettings):
         "https://dashscope.aliyuncs.com/compatible-mode/v1",
         alias="KB_VISION_BASE_URL",
     )
+    # 读连接池大小：WAL 下读不阻塞写，独立读连接池让并发读各取独立连接。
+    KB_DB_POOL_SIZE: int = Field(8, alias="KB_DB_POOL_SIZE")
 
 
 class WebSearchSettings(BaseSettings):
@@ -351,6 +353,7 @@ KB_EMBEDDING_DIM = settings.knowledge_base.KB_EMBEDDING_DIM
 KB_EMBEDDING_MODEL = settings.knowledge_base.KB_EMBEDDING_MODEL
 KB_VISION_MODEL = settings.knowledge_base.KB_VISION_MODEL
 KB_VISION_BASE_URL = settings.knowledge_base.KB_VISION_BASE_URL
+KB_DB_POOL_SIZE = settings.knowledge_base.KB_DB_POOL_SIZE
 
 # Web Search
 WEB_SEARCH_ENABLED = settings.web_search.WEB_SEARCH_ENABLED

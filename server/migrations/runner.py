@@ -3,9 +3,10 @@
 约定：
 - 迁移文件为 ``server/migrations/*.sql``，按文件名（字典序）排序依次执行。
 - 每个文件名（去 ``.sql`` 后缀）即迁移版本号，例如 ``0001_initial.sql`` -> ``0001_initial``。
-- 运行器通过 ``await get_db()`` 拿到实时连接，因此测试中 ``conftest`` 的
+- 运行器通过 ``await get_db()`` 拿到实时写连接，因此测试中 ``conftest`` 的
   ``monkeypatch.setattr(db, "DB_PATH", ...)`` + ``setattr(db, "_db", None)``
-  仍能让迁移在新库上跑。
+  仍能让迁移在新库上跑（``_db`` 为写连接变量名，读连接池由 ``close_db()``
+  在 ``_db`` 置空前置空，迁移不触及读池）。
 - ``schema_version`` 表记录已执行版本；已执行的迁移幂等跳过。
 - 每个迁移在单独事务内执行：失败立即 rollback 并抛错，不静默 pass。
 """
