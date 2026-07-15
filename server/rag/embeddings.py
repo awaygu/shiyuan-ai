@@ -13,7 +13,6 @@ import dashscope
 from dashscope import TextEmbedding
 
 from config import DASHSCOPE_API_KEY, KB_EMBEDDING_DIM, KB_EMBEDDING_MODEL
-from core.langsmith_utils import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +43,6 @@ class DashScopeEmbedding:
                 time.sleep(sleep_time)
         self._call_timestamps.append(time.monotonic())
 
-    @traceable(
-        "embed: dashscope_text_embedding",
-        tags=["embedding"],
-        metadata={"model": EMBEDDING_MODEL, "batch_size": BATCH_SIZE},
-    )
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
             return []
