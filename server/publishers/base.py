@@ -295,7 +295,7 @@ class BrowserPublisher(BasePublisher):
                 return result
             except Exception as e:
                 if isinstance(e, NeedLoginError):
-                    raise   # 冒泡到 publish() 统一重新登录
+                    raise  # 冒泡到 publish() 统一重新登录
                 logger.error("Publish failed for %s: %s", self.platform_name, e)
                 return PublishResult(
                     success=False,
