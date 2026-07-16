@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from config import COOKIES_DIR, PUBLISH_HEADLESS, PUBLISH_TIMEOUT
+from config import COOKIES_DIR, PUBLISH_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +225,7 @@ class BrowserPublisher(BasePublisher):
                     _run_playwright,
                     self._publish_impl(cookies, title, content, **kwargs),
                 )
-            except NeedLoginError as e:
+            except NeedLoginError:
                 # cookie 已过期：弹窗重新扫码登录，成功后用新 cookie 重跑一次发布。
                 await self._progress(f"{self.platform_name}登录已过期，正在打开浏览器窗口，请重新扫码登录...")
                 login_success = await self.do_login()
