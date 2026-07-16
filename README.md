@@ -4,10 +4,7 @@
 
 ## 功能演示
 
-<video controls width="100%">
-  <source src="docs/20260715_184352.mp4" type="video/mp4">
-  你的浏览器不支持视频播放。
-</video>
+![识渊 AI 功能演示](docs/20260715_184352.gif)
 
 ---
 
