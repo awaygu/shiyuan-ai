@@ -4,7 +4,10 @@
 
 ## 功能演示
 
-<video src="docs/20260715_184352.mp4" controls width="100%"></video>
+<video controls width="100%">
+  <source src="docs/20260715_184352.mp4" type="video/mp4">
+  你的浏览器不支持视频播放。
+</video>
 
 ---
 
