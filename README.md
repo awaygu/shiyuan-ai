@@ -4,7 +4,7 @@
 
 ## 功能演示
 
-![识渊 AI 功能演示](docs/20260715_184352.gif)
+<video src="docs/20260715_184352.mp4" controls width="100%"></video>
 
 ---
 
